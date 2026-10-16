@@ -1,0 +1,23 @@
+{
+  "name": "primeprep-backend",
+  "version": "1.0.0",
+  "description": "Backend REST API for PrimePrep CUET PG Test Preparation Platform",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test tests/**/*.test.js",
+    "db:migrate": "node scripts/migrate.js",
+    "db:verify": "node scripts/verify-schema.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.3",
+    "xlsx": "^0.18.5"
+  }
+}

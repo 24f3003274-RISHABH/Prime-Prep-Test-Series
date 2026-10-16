@@ -1,0 +1,6 @@
+{
+  "name": "PrimePrep",
+  "description": "CUET PG Test Preparation Platform for Political Science, Philosophy, Psychology, History, Economics, Geography, and Disaster Management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
