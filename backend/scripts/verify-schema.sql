@@ -1,38 +1,36 @@
 -- ============================================================================
--- PrimePrep: Database Schema Verification Script
+-- PrimePrep: Database Schema Verification Script (Prompt 2 Architecture)
 -- Target: Supabase PostgreSQL
--- Purpose: Verify that all tables, foreign keys, constraints, and seeds are present.
+-- Purpose: Verify tables, foreign keys, constraints, and seeds for Subject -> Chapter -> Test -> Question hierarchy.
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
--- CHECK 1: Verify that all 12 core tables (plus schema_migrations) exist
--- Expected Result: Exactly 13 rows returned with table_type = 'BASE TABLE'
+-- CHECK 1: Verify Core Architecture Tables Exist
+-- Expected Result: Exactly 10 rows returned for the core architecture tables
 -- ----------------------------------------------------------------------------
 SELECT table_name
 FROM information_schema.tables
 WHERE table_schema = 'public'
   AND table_name IN (
     'users',
-    'profiles',
     'subjects',
-    'test_categories',
-    'test_series',
+    'chapters',
     'tests',
     'questions',
     'test_questions',
-    'test_attempts',
-    'attempt_responses',
-    'import_history',
-    'audit_logs',
+    'attempts',
+    'attempt_answers',
+    'admin_audit_logs',
     'schema_migrations'
   )
 ORDER BY table_name;
 
 
 -- ----------------------------------------------------------------------------
--- CHECK 2: Verify Foreign Key Relationships
--- Expected Result: 13 foreign key constraints linking profiles, series, tests,
--- questions, attempts, responses, imports, and audit logs.
+-- CHECK 2: Verify Foreign Key Relationships for Subject -> Chapter -> Test -> Question
+-- Expected Result: Foreign keys linking chapters->subjects, tests->chapters,
+-- questions->subjects/chapters, test_questions->tests/questions,
+-- attempts->users/tests, attempt_answers->attempts/questions, admin_audit_logs->users.
 -- ----------------------------------------------------------------------------
 SELECT
     tc.table_name AS source_table,
@@ -51,63 +49,27 @@ JOIN information_schema.referential_constraints AS rc
     ON tc.constraint_name = rc.constraint_name
 WHERE tc.constraint_type = 'FOREIGN KEY'
   AND tc.table_schema = 'public'
+  AND tc.table_name IN (
+    'chapters', 'tests', 'questions', 'test_questions', 
+    'attempts', 'attempt_answers', 'admin_audit_logs'
+  )
 ORDER BY source_table, source_column;
 
 
 -- ----------------------------------------------------------------------------
 -- CHECK 3: Verify the Seven Initial CUET PG Subjects
--- Expected Result: Exactly 7 active rows returned with their official slugs
+-- Expected Result: Exactly 7 active rows ordered by display_order
 -- ----------------------------------------------------------------------------
-SELECT name, slug, paper_code, is_active
+SELECT display_order, name, slug, is_active
 FROM subjects
-ORDER BY name;
+ORDER BY display_order ASC;
 
 
 -- ----------------------------------------------------------------------------
--- CHECK 4: Verify the Three Default Test Categories
--- Expected Result: Exactly 3 rows: 'sectional', 'full-length', 'pyq'
--- ----------------------------------------------------------------------------
-SELECT name, slug, default_test_count, is_active
-FROM test_categories
-ORDER BY slug;
-
-
--- ----------------------------------------------------------------------------
--- CHECK 5: Verify Category Default Quotas (15 Sectional, 10 Full-Length, 5 PYQ)
--- Expected Result: Exactly 3 rows matching the specified counts
--- ----------------------------------------------------------------------------
-SELECT
-    slug,
-    default_test_count,
-    CASE
-        WHEN slug = 'sectional' AND default_test_count = 15 THEN 'VALID'
-        WHEN slug = 'full-length' AND default_test_count = 10 THEN 'VALID'
-        WHEN slug = 'pyq' AND default_test_count = 5 THEN 'VALID'
-        ELSE 'MISCONFIGURED'
-    END AS status
-FROM test_categories
-WHERE slug IN ('sectional', 'full-length', 'pyq');
-
-
--- ----------------------------------------------------------------------------
--- CHECK 6: Verify Unique Constraint on Single Student Attempt per Test
--- Expected Result: 1 row returned showing constraint uq_student_test_attempt on test_attempts (student_id, test_id)
--- ----------------------------------------------------------------------------
-SELECT
-    tc.table_name,
-    tc.constraint_name,
-    kcu.column_name
-FROM information_schema.table_constraints tc
-JOIN information_schema.key_column_usage kcu
-    ON tc.constraint_name = kcu.constraint_name
-WHERE tc.table_name = 'test_attempts'
-  AND tc.constraint_type = 'UNIQUE'
-ORDER BY kcu.ordinal_position;
-
-
--- ----------------------------------------------------------------------------
--- CHECK 7: Verify Deterministic Ordering Constraint on test_questions
--- Expected Result: 2 unique constraints: (test_id, question_number) and (test_id, question_id)
+-- CHECK 4: Verify Unique Constraints
+-- Expected Result: Unique constraints on users(email), subjects(slug),
+-- test_questions(test_id, question_id), test_questions(test_id, question_order),
+-- attempt_answers(attempt_id, question_id).
 -- ----------------------------------------------------------------------------
 SELECT
     tc.table_name,
@@ -116,14 +78,17 @@ SELECT
 FROM information_schema.table_constraints tc
 JOIN information_schema.key_column_usage kcu
     ON tc.constraint_name = kcu.constraint_name
-WHERE tc.table_name = 'test_questions'
-  AND tc.constraint_type = 'UNIQUE'
-GROUP BY tc.table_name, tc.constraint_name;
+WHERE tc.constraint_type = 'UNIQUE'
+  AND tc.table_schema = 'public'
+  AND tc.table_name IN ('users', 'subjects', 'test_questions', 'attempt_answers')
+GROUP BY tc.table_name, tc.constraint_name
+ORDER BY tc.table_name, tc.constraint_name;
 
 
 -- ----------------------------------------------------------------------------
--- CHECK 8: Verify Question Options Check Constraint (A, B, C, D only)
--- Expected Result: Check constraint enforcing correct_option IN ('A', 'B', 'C', 'D')
+-- CHECK 5: Verify Check Constraints
+-- Expected Result: Check constraints enforcing roles, test_types, access_types,
+-- correct_options (A, B, C, D), and attempt statuses.
 -- ----------------------------------------------------------------------------
 SELECT
     tc.table_name,
@@ -132,5 +97,15 @@ SELECT
 FROM information_schema.table_constraints tc
 JOIN information_schema.check_constraints cc
     ON tc.constraint_name = cc.constraint_name
-WHERE tc.table_name = 'questions'
-  AND cc.check_clause LIKE '%correct_option%';
+WHERE tc.table_schema = 'public'
+  AND tc.table_name IN ('users', 'tests', 'questions', 'attempts')
+ORDER BY tc.table_name, tc.constraint_name;
+
+
+-- ----------------------------------------------------------------------------
+-- CHECK 6: Verify Applied Migrations Tracking
+-- Expected Result: 10 rows showing applied migrations 001 through 010
+-- ----------------------------------------------------------------------------
+SELECT id, name, applied_at
+FROM schema_migrations
+ORDER BY id ASC;

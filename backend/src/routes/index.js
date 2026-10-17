@@ -1,17 +1,17 @@
 import { Router } from 'express';
 import healthRoutes from './healthRoutes.js';
+import authRoutes from './authRoutes.js';
+import adminRoutes from './adminRoutes.js';
 
 const router = Router();
 
 // Mount health check at /api/health
 router.use('/', healthRoutes);
 
-// Future Phase Routes placeholders:
-// router.use('/auth', authRoutes);
-// router.use('/subjects', subjectRoutes);
-// router.use('/test-categories', testCategoryRoutes);
-// router.use('/test-series', testSeriesRoutes);
-// router.use('/tests', testRoutes);
-// router.use('/admin', adminRoutes);
+// Mount authentication routes at /api/auth
+router.use('/auth', authRoutes);
+
+// Mount administrative routes at /api/admin
+router.use('/admin', adminRoutes);
 
 export default router;

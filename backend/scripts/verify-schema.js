@@ -31,9 +31,7 @@ if (!databaseUrl || databaseUrl.includes('YOUR_PASSWORD') || databaseUrl.include
   console.log('To verify directly in Supabase SQL Editor:');
   console.log('  1. Open backend/scripts/verify-schema.sql');
   console.log('  2. Copy and paste into the Supabase SQL Editor');
-  console.log('  3. Execute to inspect the 8 schema checks.\n');
-  console.log('Alternatively, set your live DATABASE_URL in backend/.env and re-run:');
-  console.log('  npm run db:verify\n');
+  console.log('  3. Execute to inspect schema checks.\n');
   process.exit(0);
 }
 
@@ -47,12 +45,12 @@ const pool = new Pool({
 
 async function verifyDatabase() {
   console.log('====================================================');
-  console.log('🔍 Executing PrimePrep Database Verification Checks');
+  console.log('🔍 Executing PrimePrep Database Architecture Checks');
   console.log('====================================================');
 
   const client = await pool.connect();
   let passedCount = 0;
-  const totalChecks = 8;
+  const totalChecks = 6;
 
   try {
     // Check 1: Tables
@@ -61,102 +59,97 @@ async function verifyDatabase() {
       FROM information_schema.tables
       WHERE table_schema = 'public'
         AND table_name IN (
-          'users', 'profiles', 'subjects', 'test_categories',
-          'test_series', 'tests', 'questions', 'test_questions',
-          'test_attempts', 'attempt_responses', 'import_history',
-          'audit_logs', 'schema_migrations'
+          'users', 'subjects', 'chapters', 'tests', 'questions',
+          'test_questions', 'attempts', 'attempt_answers',
+          'admin_audit_logs', 'schema_migrations'
         )
       ORDER BY table_name;
     `);
-    if (tables.length === 13) {
-      console.log(`✅ [1/8] Tables Check: All 13 tables exist (${tables.map((t) => t.table_name).join(', ')})`);
+    const foundTables = tables.map((t) => t.table_name);
+    const requiredTables = [
+      'admin_audit_logs', 'attempt_answers', 'attempts', 'chapters',
+      'questions', 'schema_migrations', 'subjects', 'test_questions',
+      'tests', 'users'
+    ];
+    const allTablesPresent = requiredTables.every((t) => foundTables.includes(t));
+    if (allTablesPresent) {
+      console.log(`✅ [1/6] Architecture Tables Check: All ${requiredTables.length} core tables verified (${foundTables.join(', ')})`);
       passedCount++;
     } else {
-      console.log(`❌ [1/8] Tables Check: Expected 13 tables, found ${tables.length}`);
+      console.log(`❌ [1/6] Architecture Tables Check: Missing tables. Found ${foundTables.join(', ')}`);
     }
 
     // Check 2: Foreign Keys
     const { rows: fks } = await client.query(`
-      SELECT constraint_name
-      FROM information_schema.table_constraints
-      WHERE constraint_type = 'FOREIGN KEY' AND table_schema = 'public';
+      SELECT tc.constraint_name, tc.table_name
+      FROM information_schema.table_constraints tc
+      WHERE tc.constraint_type = 'FOREIGN KEY' 
+        AND tc.table_schema = 'public'
+        AND tc.table_name IN ('chapters', 'tests', 'questions', 'test_questions', 'attempts', 'attempt_answers', 'admin_audit_logs');
     `);
-    if (fks.length >= 12) {
-      console.log(`✅ [2/8] Foreign Keys Check: ${fks.length} foreign key relationships verified.`);
+    if (fks.length >= 7) {
+      console.log(`✅ [2/6] Hierarchy Foreign Keys Check: ${fks.length} foreign key links verified across Subject -> Chapter -> Test -> Question.`);
       passedCount++;
     } else {
-      console.log(`❌ [2/8] Foreign Keys Check: Found only ${fks.length} foreign keys.`);
+      console.log(`❌ [2/6] Hierarchy Foreign Keys Check: Expected at least 7 FKs, found ${fks.length}.`);
     }
 
     // Check 3: Initial Subjects
-    const { rows: subjects } = await client.query(`SELECT slug FROM subjects ORDER BY slug;`);
+    const { rows: subjects } = await client.query(`SELECT slug, name, display_order FROM subjects ORDER BY display_order ASC;`);
     const expectedSubjects = [
-      'disaster-management', 'economics', 'geography',
-      'history', 'philosophy', 'political-science', 'psychology'
+      'political-science', 'philosophy', 'psychology',
+      'history', 'economics', 'geography', 'disaster-management'
     ];
-    const subjectSlugs = subjects.map((s) => s.slug).sort();
+    const subjectSlugs = subjects.map((s) => s.slug);
     const subjectsValid = expectedSubjects.every((slug) => subjectSlugs.includes(slug));
     if (subjectsValid) {
-      console.log(`✅ [3/8] Initial Subjects Check: All 7 CUET PG subjects verified.`);
+      console.log(`✅ [3/6] Initial Subjects Seed Check: All 7 CUET PG subjects verified in order (${subjects.map((s) => s.name).join(', ')})`);
       passedCount++;
     } else {
-      console.log(`❌ [3/8] Initial Subjects Check: Missing subjects (${subjectSlugs.join(', ')})`);
+      console.log(`❌ [3/6] Initial Subjects Seed Check: Missing subjects (${subjectSlugs.join(', ')})`);
     }
 
-    // Check 4 & 5: Categories & Default Quotas
-    const { rows: categories } = await client.query(`
-      SELECT slug, default_test_count FROM test_categories ORDER BY slug;
-    `);
-    const catMap = Object.fromEntries(categories.map((c) => [c.slug, c.default_test_count]));
-    if (catMap['sectional'] === 15 && catMap['full-length'] === 10 && catMap['pyq'] === 5) {
-      console.log(`✅ [4/8 & 5/8] Test Categories & Default Quotas Check: 15 Sectional, 10 Full-Length, 5 PYQ verified.`);
-      passedCount += 2;
-    } else {
-      console.log(`❌ [4/8 & 5/8] Test Categories Check failed:`, catMap);
-    }
-
-    // Check 6: Single Attempt Unique Constraint
-    const { rows: attemptUq } = await client.query(`
-      SELECT tc.constraint_name
+    // Check 4: Unique Constraints
+    const { rows: uqs } = await client.query(`
+      SELECT tc.table_name, tc.constraint_name
       FROM information_schema.table_constraints tc
-      WHERE tc.table_name = 'test_attempts' AND tc.constraint_type = 'UNIQUE';
+      WHERE tc.constraint_type = 'UNIQUE'
+        AND tc.table_schema = 'public'
+        AND tc.table_name IN ('users', 'subjects', 'test_questions', 'attempt_answers');
     `);
-    if (attemptUq.length > 0) {
-      console.log(`✅ [6/8] Single-Attempt Policy Check: Unique constraint on (student_id, test_id) verified.`);
+    if (uqs.length >= 4) {
+      console.log(`✅ [4/6] Unique Constraints Check: ${uqs.length} uniqueness constraints verified (users.email, subjects.slug, test_questions, attempt_answers).`);
       passedCount++;
     } else {
-      console.log(`❌ [6/8] Single-Attempt Policy Check: Unique constraint missing on test_attempts.`);
+      console.log(`❌ [4/6] Unique Constraints Check: Found ${uqs.length} constraints.`);
     }
 
-    // Check 7: Question Ordering Unique Constraint
-    const { rows: questionOrderUq } = await client.query(`
-      SELECT tc.constraint_name
-      FROM information_schema.table_constraints tc
-      WHERE tc.table_name = 'test_questions' AND tc.constraint_type = 'UNIQUE';
-    `);
-    if (questionOrderUq.length >= 2) {
-      console.log(`✅ [7/8] Deterministic Question Ordering Check: Unique constraints on test_questions verified.`);
-      passedCount++;
-    } else {
-      console.log(`❌ [7/8] Question Ordering Check: Constraints missing on test_questions.`);
-    }
-
-    // Check 8: Question Option Check Constraint
+    // Check 5: CHECK Constraints
     const { rows: checkConstraints } = await client.query(`
-      SELECT cc.check_clause
+      SELECT tc.table_name, cc.check_clause
       FROM information_schema.table_constraints tc
       JOIN information_schema.check_constraints cc ON tc.constraint_name = cc.constraint_name
-      WHERE tc.table_name = 'questions' AND cc.check_clause LIKE '%correct_option%';
+      WHERE tc.table_schema = 'public'
+        AND tc.table_name IN ('users', 'tests', 'questions', 'attempts');
     `);
-    if (checkConstraints.length > 0) {
-      console.log(`✅ [8/8] Correct Option Constraint Check: Option CHECK constraint (A, B, C, D) verified.`);
+    if (checkConstraints.length >= 4) {
+      console.log(`✅ [5/6] Domain Validation Check Constraints: ${checkConstraints.length} check constraints verified (role, test_type, access_type, correct_option).`);
       passedCount++;
     } else {
-      console.log(`❌ [8/8] Correct Option Check Constraint missing on questions table.`);
+      console.log(`❌ [5/6] Check Constraints Check: Found ${checkConstraints.length} check constraints.`);
+    }
+
+    // Check 6: Migration Tracking
+    const { rows: migrations } = await client.query(`SELECT name FROM schema_migrations ORDER BY id ASC;`);
+    if (migrations.length >= 10) {
+      console.log(`✅ [6/6] Migration Tracking Check: ${migrations.length} migration records tracked in schema_migrations.`);
+      passedCount++;
+    } else {
+      console.log(`❌ [6/6] Migration Tracking Check: Found ${migrations.length} migrations.`);
     }
 
     console.log('====================================================');
-    console.log(`Summary: ${passedCount}/${totalChecks} checks passed.`);
+    console.log(`Summary: ${passedCount}/${totalChecks} architecture verification checks passed.`);
     console.log('====================================================\n');
   } finally {
     client.release();

@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import app from '../src/app.js';
+import { getPool } from '../src/config/db.js';
 
 test('GET /api/health should return 200 with status ok and service info', async (t) => {
-  // Simple mock request test using app listener
   const res = await new Promise((resolve) => {
     const server = app.listen(0, async () => {
       const port = server.address().port;
@@ -22,4 +22,11 @@ test('GET /api/health should return 200 with status ok and service info', async 
   assert.strictEqual(res.body.service, 'PrimePrep API');
   assert.ok(typeof res.body.uptimeSeconds === 'number');
   assert.ok(res.body.database);
+});
+
+test.after(async () => {
+  const pool = getPool();
+  if (pool) {
+    await pool.end();
+  }
 });
