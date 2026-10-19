@@ -456,3 +456,68 @@ export async function getTestQuestions(testId) {
   return res.data;
 }
 
+// 6. Student Examination Portal & Attempt APIs (Phase 6)
+export async function getStudentSubjects() {
+  const res = await apiFetch('/student/subjects');
+  return res.data || [];
+}
+
+export async function getStudentChapters(subjectId) {
+  const res = await apiFetch(`/student/subjects/${subjectId}/chapters`);
+  return res.data || [];
+}
+
+export async function getStudentTests(params = {}) {
+  const search = new URLSearchParams();
+  if (params.subjectId) search.append('subjectId', params.subjectId);
+  if (params.chapterId) search.append('chapterId', params.chapterId);
+  if (params.category && params.category !== 'ALL') search.append('category', params.category);
+
+  const query = search.toString() ? `?${search.toString()}` : '';
+  const res = await apiFetch(`/student/tests${query}`);
+  return res.data || [];
+}
+
+export async function getStudentTestInstructions(testId) {
+  const res = await apiFetch(`/student/tests/${testId}/instructions`);
+  return res.data;
+}
+
+export async function startStudentTest(testId) {
+  const res = await apiFetch(`/student/tests/${testId}/start`, {
+    method: 'POST',
+  });
+  return res.data;
+}
+
+export async function getStudentAttempt(attemptId) {
+  const res = await apiFetch(`/student/attempts/${attemptId}`);
+  return res.data;
+}
+
+export async function saveStudentResponse(attemptId, questionId, payload) {
+  const res = await apiFetch(`/student/attempts/${attemptId}/responses/${questionId}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
+export async function submitStudentAttempt(attemptId) {
+  const res = await apiFetch(`/student/attempts/${attemptId}/submit`, {
+    method: 'POST',
+  });
+  return res.data;
+}
+
+export async function getStudentAttemptResult(attemptId) {
+  const res = await apiFetch(`/student/attempts/${attemptId}/result`);
+  return res.data;
+}
+
+export async function getStudentAttemptsList() {
+  const res = await apiFetch('/student/attempts');
+  return res.data || [];
+}
+
+

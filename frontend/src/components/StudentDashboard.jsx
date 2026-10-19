@@ -1,11 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
-import { getSubjects, getChaptersBySubject, getTestsByChapter, getTest } from '../api/client.js';
+import {
+  getStudentSubjects,
+  getStudentChapters,
+  getStudentTests,
+} from '../api/client.js';
+import StudentTestInstructions from './StudentTestInstructions.jsx';
+import StudentExamInterface from './StudentExamInterface.jsx';
+import StudentTestResult from './StudentTestResult.jsx';
+import StudentAttemptHistory from './StudentAttemptHistory.jsx';
 
 export default function StudentDashboard() {
   const { user, logout } = useAuth();
 
-  // Catalogue navigation state
+  // Navigation views: 'catalogue' | 'instructions' | 'exam' | 'result' | 'history'
+  const [activeView, setActiveView] = useState('catalogue');
+
+  // Catalogue state
   const [subjects, setSubjects] = useState([]);
   const [loadingSubjects, setLoadingSubjects] = useState(true);
   const [subjectsError, setSubjectsError] = useState(null);
@@ -21,8 +32,11 @@ export default function StudentDashboard() {
   const [testsError, setTestsError] = useState(null);
   const [activeCategoryFilter, setActiveCategoryFilter] = useState('ALL'); // 'ALL' | 'sectional' | 'full_length' | 'pyq'
 
-  const [selectedTestDetail, setSelectedTestDetail] = useState(null);
-  const [loadingDetail, setLoadingDetail] = useState(false);
+  // Exam / Attempt state
+  const [activeTestId, setActiveTestId] = useState(null);
+  const [activeAttemptId, setActiveAttemptId] = useState(null);
+  const [initialExamData, setInitialExamData] = useState(null);
+  const [activeResultAttemptId, setActiveResultAttemptId] = useState(null);
 
   // Fetch published subjects on mount
   useEffect(() => {
@@ -33,7 +47,7 @@ export default function StudentDashboard() {
     setLoadingSubjects(true);
     setSubjectsError(null);
     try {
-      const data = await getSubjects('published');
+      const data = await getStudentSubjects();
       setSubjects(data || []);
     } catch (err) {
       setSubjectsError(err.message || 'Failed to load subjects catalogue.');
@@ -45,11 +59,10 @@ export default function StudentDashboard() {
   const handleSelectSubject = async (subj) => {
     setSelectedSubject(subj);
     setSelectedChapter(null);
-    setSelectedTestDetail(null);
     setLoadingChapters(true);
     setChaptersError(null);
     try {
-      const data = await getChaptersBySubject(subj.id);
+      const data = await getStudentChapters(subj.id);
       setChapters(data || []);
     } catch (err) {
       setChaptersError(err.message || 'Failed to load chapters.');
@@ -60,11 +73,13 @@ export default function StudentDashboard() {
 
   const handleSelectChapter = async (chap) => {
     setSelectedChapter(chap);
-    setSelectedTestDetail(null);
     setLoadingTests(true);
     setTestsError(null);
     try {
-      const data = await getTestsByChapter(chap.id);
+      const data = await getStudentTests({
+        subjectId: selectedSubject?.id,
+        chapterId: chap.id,
+      });
       setTests(data || []);
     } catch (err) {
       setTestsError(err.message || 'Failed to load tests.');
@@ -73,15 +88,30 @@ export default function StudentDashboard() {
     }
   };
 
-  const handleViewTestDetail = async (testId) => {
-    setLoadingDetail(true);
-    try {
-      const detail = await getTest(testId);
-      setSelectedTestDetail(detail);
-    } catch (err) {
-      alert(`Could not load test details: ${err.message}`);
-    } finally {
-      setLoadingDetail(false);
+  const handleOpenInstructions = (testId) => {
+    setActiveTestId(testId);
+    setActiveView('instructions');
+  };
+
+  const handleStartExam = (sessionData) => {
+    setActiveAttemptId(sessionData.attemptId);
+    setInitialExamData(sessionData);
+    setActiveView('exam');
+  };
+
+  const handleSubmitSuccess = (attemptId) => {
+    setActiveResultAttemptId(attemptId);
+    setActiveView('result');
+  };
+
+  const handleSelectHistoryAttempt = (attemptId, isInProgress, testId) => {
+    if (isInProgress) {
+      setActiveAttemptId(attemptId);
+      setInitialExamData(null);
+      setActiveView('exam');
+    } else {
+      setActiveResultAttemptId(attemptId);
+      setActiveView('result');
     }
   };
 
@@ -92,416 +122,416 @@ export default function StudentDashboard() {
 
   return (
     <div>
-      {/* Student Profile Card */}
-      <div className="card">
-        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h2 className="card-title">Welcome back, {user.fullName}!</h2>
-            <p className="card-subtitle">CUET PG Test Series &bull; Student Preparation Portal</p>
-          </div>
-          <span className="status-pill status-success">STUDENT ACCOUNT</span>
-        </div>
-
-        <table className="data-table">
-          <tbody>
-            <tr>
-              <td style={{ width: '200px', fontWeight: 600 }}>Student ID</td>
-              <td><code>{user.id}</code></td>
-            </tr>
-            <tr>
-              <td style={{ fontWeight: 600 }}>Email Address</td>
-              <td>{user.email}</td>
-            </tr>
-            <tr>
-              <td style={{ fontWeight: 600 }}>Role</td>
-              <td><code>{user.role}</code> (Enforced server-side)</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem' }}>
-          <button className="btn btn-outline" onClick={logout}>
-            Sign Out
-          </button>
-        </div>
-      </div>
-
-      {/* Breadcrumb Navigation Bar */}
-      <div className="card" style={{ padding: '0.75rem 1.25rem', backgroundColor: '#f1f5f9' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-          <button
-            onClick={() => { setSelectedSubject(null); setSelectedChapter(null); setSelectedTestDetail(null); }}
-            style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontWeight: 600, cursor: 'pointer', padding: 0 }}
-          >
-            Subjects Catalogue
-          </button>
-          {selectedSubject && (
-            <>
-              <span style={{ color: 'var(--color-text-muted)' }}>&gt;</span>
+      {/* Top Navigation Tabs for Student Portal (hidden during active exam to avoid distraction) */}
+      {activeView !== 'exam' && (
+        <div className="card" style={{ padding: '0.75rem 1.25rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button
-                onClick={() => { setSelectedChapter(null); setSelectedTestDetail(null); }}
-                style={{ background: 'none', border: 'none', color: selectedChapter ? 'var(--color-primary)' : 'var(--color-text)', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                type="button"
+                className={`btn ${activeView === 'catalogue' || activeView === 'instructions' ? 'btn-primary' : 'btn-outline'}`}
+                style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}
+                onClick={() => {
+                  setActiveView('catalogue');
+                  setActiveTestId(null);
+                }}
               >
-                {selectedSubject.name}
+                📚 Browse Test Catalogue
               </button>
-            </>
-          )}
-          {selectedChapter && (
-            <>
-              <span style={{ color: 'var(--color-text-muted)' }}>&gt;</span>
-              <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>
-                {selectedChapter.name}
+              <button
+                type="button"
+                className={`btn ${activeView === 'history' ? 'btn-primary' : 'btn-outline'}`}
+                style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}
+                onClick={() => setActiveView('history')}
+              >
+                📊 My Test Attempts History
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                Candidate: <strong>{user.fullName}</strong>
               </span>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* LEVEL 1: Subjects Catalogue */}
-      {!selectedSubject && (
-        <div className="card">
-          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h3 className="card-title">CUET PG Subject Catalogue</h3>
-              <p className="card-subtitle">Select your examination subject to explore chapter modules and mock test series</p>
-            </div>
-            <button className="btn btn-outline" onClick={loadSubjects} disabled={loadingSubjects}>
-              {loadingSubjects ? 'Refreshing...' : 'Refresh Catalogue'}
-            </button>
-          </div>
-
-          {subjectsError && (
-            <div className="status-pill status-error" style={{ display: 'block', margin: '1rem 0', padding: '0.75rem' }}>
-              {subjectsError}
-            </div>
-          )}
-
-          {loadingSubjects ? (
-            <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '2rem' }}>
-              Loading examination catalogue from PostgreSQL...
-            </p>
-          ) : subjects.length === 0 ? (
-            <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '2rem' }}>
-              No published subjects available at this time.
-            </p>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
-              {subjects.map((subj) => (
-                <div
-                  key={subj.id}
-                  onClick={() => handleSelectSubject(subj)}
-                  style={{
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius)',
-                    padding: '1.25rem',
-                    backgroundColor: 'var(--color-surface)',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    boxShadow: 'var(--shadow)',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.backgroundColor = '#f8fafc'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.backgroundColor = 'var(--color-surface)'; }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-accent)' }}>
-                      {subj.paper_code || subj.code || 'CUET PG'}
-                    </span>
-                    <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>
-                      PUBLISHED
-                    </span>
-                  </div>
-
-                  <h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-primary)', marginBottom: '0.35rem' }}>
-                    {subj.name}
-                  </h4>
-
-                  <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', minHeight: '2.5rem', marginBottom: '1rem' }}>
-                    {subj.description || 'Comprehensive CUET PG preparation syllabus with Sectional, Full-Length, and PYQ tests.'}
-                  </p>
-
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                    <span>📚 {subj.chapter_count || 0} Chapter(s)</span>
-                    <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>Explore Chapters &rarr;</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* LEVEL 2: Chapters in Selected Subject */}
-      {selectedSubject && !selectedChapter && (
-        <div className="card">
-          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h3 className="card-title">{selectedSubject.name} &bull; Chapters</h3>
-              <p className="card-subtitle">{selectedSubject.description || 'Explore syllabus modules and test series'}</p>
-            </div>
-            <button className="btn btn-outline" onClick={() => setSelectedSubject(null)}>
-              &larr; Back to Subjects
-            </button>
-          </div>
-
-          {chaptersError && (
-            <div className="status-pill status-error" style={{ display: 'block', margin: '1rem 0', padding: '0.75rem' }}>
-              {chaptersError}
-            </div>
-          )}
-
-          {loadingChapters ? (
-            <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '2rem' }}>
-              Loading chapters...
-            </p>
-          ) : chapters.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
-              <p style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>No published chapters currently available under this subject.</p>
-              <button className="btn btn-outline" onClick={() => setSelectedSubject(null)}>
-                Choose Another Subject
+              <button className="btn btn-outline" style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }} onClick={logout}>
+                Sign Out
               </button>
             </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem' }}>
-              {chapters.map((chap, idx) => (
-                <div
-                  key={chap.id}
-                  onClick={() => handleSelectChapter(chap)}
-                  style={{
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius)',
-                    padding: '1.25rem',
-                    backgroundColor: 'var(--color-surface)',
-                    cursor: 'pointer',
-                    boxShadow: 'var(--shadow)',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.backgroundColor = '#f8fafc'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.backgroundColor = 'var(--color-surface)'; }}
-                >
-                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-accent)', marginBottom: '0.25rem' }}>
-                    CHAPTER #{chap.display_order || idx + 1}
-                  </div>
-                  <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-text)', marginBottom: '0.35rem' }}>
-                    {chap.name}
-                  </h4>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', minHeight: '2.5rem', marginBottom: '0.75rem' }}>
-                    {chap.description || 'Topic-wise mock tests, full-length papers, and past year question series.'}
-                  </p>
-
-                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem', fontSize: '0.75rem' }}>
-                    <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>
-                      {chap.sectional_count || 0} Sectional
-                    </span>
-                    <span className="status-pill status-warning" style={{ fontSize: '0.7rem' }}>
-                      {chap.full_length_count || 0} Full-Length
-                    </span>
-                    <span className="status-pill status-success" style={{ fontSize: '0.7rem', backgroundColor: '#e0f2fe', color: '#0369a1' }}>
-                      {chap.pyq_count || 0} PYQ
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+          </div>
         </div>
       )}
 
-      {/* LEVEL 3: Tests in Selected Chapter */}
-      {selectedSubject && selectedChapter && (
-        <div className="card">
-          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h3 className="card-title">{selectedChapter.name} &bull; Available Tests</h3>
-              <p className="card-subtitle">Subject: {selectedSubject.name} &bull; Chapter #{selectedChapter.display_order}</p>
-            </div>
-            <button className="btn btn-outline" onClick={() => setSelectedChapter(null)}>
-              &larr; Back to Chapters
-            </button>
-          </div>
+      {/* VIEW 1: Test Instructions */}
+      {activeView === 'instructions' && activeTestId && (
+        <StudentTestInstructions
+          testId={activeTestId}
+          onStartExam={handleStartExam}
+          onBack={() => setActiveView('catalogue')}
+        />
+      )}
 
-          {/* Test Category Filter Tabs */}
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
-            {[
-              { id: 'ALL', label: `All Tests (${tests.length})` },
-              { id: 'sectional', label: `Sectional Tests (${tests.filter(t => t.test_type === 'sectional').length})` },
-              { id: 'full_length', label: `Full-Length Tests (${tests.filter(t => t.test_type === 'full_length').length})` },
-              { id: 'pyq', label: `PYQ Tests (${tests.filter(t => t.test_type === 'pyq').length})` },
-            ].map(tab => (
+      {/* VIEW 2: Active Working Exam Interface */}
+      {activeView === 'exam' && activeAttemptId && (
+        <StudentExamInterface
+          attemptId={activeAttemptId}
+          initialData={initialExamData}
+          onSubmitSuccess={handleSubmitSuccess}
+        />
+      )}
+
+      {/* VIEW 3: Score and Solutions Result Page */}
+      {activeView === 'result' && activeResultAttemptId && (
+        <StudentTestResult
+          attemptId={activeResultAttemptId}
+          onBackToDashboard={() => {
+            setActiveView('catalogue');
+            setActiveResultAttemptId(null);
+            if (selectedChapter) {
+              handleSelectChapter(selectedChapter);
+            }
+          }}
+          onViewHistory={() => {
+            setActiveView('history');
+            setActiveResultAttemptId(null);
+          }}
+        />
+      )}
+
+      {/* VIEW 4: Attempt History */}
+      {activeView === 'history' && (
+        <StudentAttemptHistory
+          onSelectAttempt={handleSelectHistoryAttempt}
+          onBackToCatalogue={() => setActiveView('catalogue')}
+        />
+      )}
+
+      {/* VIEW 5: Catalogue (Subjects -> Chapters -> Tests) */}
+      {activeView === 'catalogue' && (
+        <div>
+          {/* Breadcrumb Navigation Bar */}
+          <div className="card" style={{ padding: '0.75rem 1.25rem', backgroundColor: '#f8fafc', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
               <button
-                key={tab.id}
-                onClick={() => setActiveCategoryFilter(tab.id)}
-                className={`nav-btn ${activeCategoryFilter === tab.id ? 'active' : ''}`}
-                style={{ fontSize: '0.85rem' }}
+                type="button"
+                onClick={() => { setSelectedSubject(null); setSelectedChapter(null); }}
+                style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontWeight: 600, cursor: 'pointer', padding: 0 }}
               >
-                {tab.label}
+                CUET PG Subjects
               </button>
-            ))}
+              {selectedSubject && (
+                <>
+                  <span style={{ color: 'var(--color-text-muted)' }}>&gt;</span>
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedChapter(null); }}
+                    style={{ background: 'none', border: 'none', color: selectedChapter ? 'var(--color-primary)' : 'var(--color-text)', fontWeight: 600, cursor: 'pointer', padding: 0 }}
+                  >
+                    {selectedSubject.name}
+                  </button>
+                </>
+              )}
+              {selectedChapter && (
+                <>
+                  <span style={{ color: 'var(--color-text-muted)' }}>&gt;</span>
+                  <span style={{ fontWeight: 600, color: 'var(--color-text)' }}>
+                    {selectedChapter.name}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
 
-          {testsError && (
-            <div className="status-pill status-error" style={{ display: 'block', margin: '1rem 0', padding: '0.75rem' }}>
-              {testsError}
-            </div>
-          )}
-
-          {loadingTests ? (
-            <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '2rem' }}>
-              Loading test series...
-            </p>
-          ) : filteredTests.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
-              <p>No published tests found in this category.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
-              {filteredTests.map((test) => (
-                <div
-                  key={test.id}
-                  style={{
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius)',
-                    padding: '1.25rem',
-                    backgroundColor: 'var(--color-surface)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                      <span className={`status-pill ${test.test_type === 'sectional' ? 'status-success' : test.test_type === 'full_length' ? 'status-warning' : 'status-success'}`} style={{ fontSize: '0.7rem' }}>
-                        {test.test_type.replace('_', ' ').toUpperCase()} #{test.test_number || test.display_order}
-                      </span>
-                      <span className={`status-pill ${test.access_type === 'free' ? 'status-success' : 'status-warning'}`} style={{ fontSize: '0.7rem' }}>
-                        {test.access_type.toUpperCase()}
-                      </span>
-                    </div>
-
-                    <h4 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-primary)', marginBottom: '0.35rem' }}>
-                      {test.title}
-                    </h4>
-
-                    <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem' }}>
-                      {test.description || 'Standard CUET PG pattern questions with positive and negative marking.'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', backgroundColor: '#f8fafc', padding: '0.5rem', borderRadius: 'var(--radius)', fontSize: '0.75rem', marginBottom: '0.75rem' }}>
-                      <div>
-                        <span style={{ color: 'var(--color-text-muted)' }}>Duration:</span>
-                        <div style={{ fontWeight: 600 }}>{test.duration_minutes} min</div>
-                      </div>
-                      <div>
-                        <span style={{ color: 'var(--color-text-muted)' }}>Marking:</span>
-                        <div style={{ fontWeight: 600 }}>+{test.positive_marks} / -{test.negative_marks}</div>
-                      </div>
-                      <div>
-                        <span style={{ color: 'var(--color-text-muted)' }}>Questions:</span>
-                        <div style={{ fontWeight: 600 }}>{test.question_count || 0} Qs</div>
-                      </div>
-                    </div>
-
-                    <button
-                      className="btn btn-outline"
-                      style={{ width: '100%', fontSize: '0.85rem' }}
-                      onClick={() => handleViewTestDetail(test.id)}
-                      disabled={loadingDetail}
-                    >
-                      View Test Details
-                    </button>
-                  </div>
+          {/* LEVEL 1: Subjects Grid */}
+          {!selectedSubject && (
+            <div className="card">
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 className="card-title">CUET PG Examination Subjects</h3>
+                  <p className="card-subtitle">Select your discipline to access sectional modules, full-length tests, and PYQs</p>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Test Detail Modal / Overview */}
-      {selectedTestDetail && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0, 0, 0, 0.5)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 1000,
-          padding: '1rem',
-        }}>
-          <div className="card" style={{ maxWidth: '600px', width: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 className="card-title">{selectedTestDetail.title}</h3>
-                <p className="card-subtitle">{selectedTestDetail.subject_name} &bull; {selectedTestDetail.chapter_name}</p>
+                <button className="btn btn-outline" onClick={loadSubjects} disabled={loadingSubjects}>
+                  {loadingSubjects ? 'Loading...' : 'Refresh Catalogue'}
+                </button>
               </div>
-              <button
-                onClick={() => setSelectedTestDetail(null)}
-                style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--color-text-muted)' }}
-              >
-                &times;
-              </button>
-            </div>
 
-            <table className="data-table">
-              <tbody>
-                <tr>
-                  <td style={{ fontWeight: 600, width: '180px' }}>Category</td>
-                  <td>
-                    <span className="status-pill status-success">
-                      {selectedTestDetail.test_type?.toUpperCase()}
-                    </span>
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Test Number</td>
-                  <td>#{selectedTestDetail.test_number}</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Access Type</td>
-                  <td>
-                    <span className={`status-pill ${selectedTestDetail.access_type === 'free' ? 'status-success' : 'status-warning'}`}>
-                      {selectedTestDetail.access_type?.toUpperCase()}
-                    </span>
-                  </td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Duration</td>
-                  <td>{selectedTestDetail.duration_minutes} Minutes</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Marking Scheme</td>
-                  <td>+{selectedTestDetail.positive_marks} for correct, -{selectedTestDetail.negative_marks} for incorrect</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Questions Mapped</td>
-                  <td>{selectedTestDetail.question_count || 0} Questions</td>
-                </tr>
-                <tr>
-                  <td style={{ fontWeight: 600 }}>Allowed Attempts</td>
-                  <td>{selectedTestDetail.max_attempts || 1} Attempt</td>
-                </tr>
-              </tbody>
-            </table>
+              {subjectsError && (
+                <div className="status-pill status-error" style={{ display: 'block', margin: '1rem 0', padding: '0.75rem' }}>
+                  {subjectsError}
+                </div>
+              )}
 
-            {selectedTestDetail.instructions && (
-              <div style={{ marginTop: '1rem', padding: '0.75rem', backgroundColor: '#f8fafc', borderRadius: 'var(--radius)' }}>
-                <strong style={{ fontSize: '0.85rem' }}>Examination Instructions:</strong>
-                <p style={{ fontSize: '0.85rem', color: 'var(--color-text)', marginTop: '0.25rem', whiteSpace: 'pre-wrap' }}>
-                  {selectedTestDetail.instructions}
+              {loadingSubjects ? (
+                <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '3rem' }}>
+                  Loading subjects catalogue from PostgreSQL...
                 </p>
-              </div>
-            )}
+              ) : subjects.length === 0 ? (
+                <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '3rem' }}>
+                  No published subjects available at this time.
+                </p>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.25rem' }}>
+                  {subjects.map((subj) => (
+                    <div
+                      key={subj.id}
+                      onClick={() => handleSelectSubject(subj)}
+                      style={{
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius)',
+                        padding: '1.25rem',
+                        backgroundColor: 'var(--color-surface)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: 'var(--shadow)',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.backgroundColor = '#f8fafc'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.backgroundColor = 'var(--color-surface)'; }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-accent)' }}>
+                          {subj.paper_code || subj.code || 'CUET PG'}
+                        </span>
+                        <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>
+                          PUBLISHED
+                        </span>
+                      </div>
 
-            <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-              <button className="btn btn-outline" onClick={() => setSelectedTestDetail(null)}>
-                Close
-              </button>
+                      <h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-primary)', marginBottom: '0.35rem' }}>
+                        {subj.name}
+                      </h4>
+
+                      <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', minHeight: '2.5rem', marginBottom: '1rem' }}>
+                        {subj.description || 'Comprehensive CUET PG preparation syllabus with Sectional, Full-Length, and PYQ tests.'}
+                      </p>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                        <span>📚 {subj.chapter_count || 0} Chapter(s)</span>
+                        <span style={{ color: 'var(--color-primary)', fontWeight: 600 }}>Explore Chapters &rarr;</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
+          )}
+
+          {/* LEVEL 2: Chapters in Selected Subject */}
+          {selectedSubject && !selectedChapter && (
+            <div className="card">
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 className="card-title">{selectedSubject.name} &bull; Chapters</h3>
+                  <p className="card-subtitle">{selectedSubject.description || 'Explore syllabus modules and test series'}</p>
+                </div>
+                <button className="btn btn-outline" onClick={() => setSelectedSubject(null)}>
+                  &larr; Back to Subjects
+                </button>
+              </div>
+
+              {chaptersError && (
+                <div className="status-pill status-error" style={{ display: 'block', margin: '1rem 0', padding: '0.75rem' }}>
+                  {chaptersError}
+                </div>
+              )}
+
+              {loadingChapters ? (
+                <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '3rem' }}>
+                  Loading chapters from PostgreSQL...
+                </p>
+              ) : chapters.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+                  <p>No published chapters available for {selectedSubject.name} yet.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1rem' }}>
+                  {chapters.map((chap) => (
+                    <div
+                      key={chap.id}
+                      onClick={() => handleSelectChapter(chap)}
+                      style={{
+                        border: '1px solid var(--color-border)',
+                        borderRadius: 'var(--radius)',
+                        padding: '1.25rem',
+                        backgroundColor: 'var(--color-surface)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-accent)'; e.currentTarget.style.backgroundColor = '#f8fafc'; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'var(--color-border)'; e.currentTarget.style.backgroundColor = 'var(--color-surface)'; }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                          Chapter {chap.display_order}
+                        </span>
+                        <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>
+                          {chap.test_count || 0} Test(s)
+                        </span>
+                      </div>
+
+                      <h4 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-primary)', marginBottom: '0.35rem' }}>
+                        {chap.name}
+                      </h4>
+
+                      <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', minHeight: '2rem', marginBottom: '0.75rem' }}>
+                        {chap.description || 'Topic questions covering essential CUET PG syllabus concepts.'}
+                      </p>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.8rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.5rem', color: 'var(--color-primary)', fontWeight: 600 }}>
+                        <span>Sectional: {chap.sectional_count || 0} | Full: {chap.full_length_count || 0}</span>
+                        <span>Open Tests &rarr;</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* LEVEL 3: Available Test Series under Selected Chapter */}
+          {selectedSubject && selectedChapter && (
+            <div className="card">
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+                <div>
+                  <h3 className="card-title">{selectedChapter.name} &bull; Test Series</h3>
+                  <p className="card-subtitle">{selectedSubject.name} &bull; Practice exams and past year question papers</p>
+                </div>
+                <button className="btn btn-outline" onClick={() => setSelectedChapter(null)}>
+                  &larr; Back to Chapters
+                </button>
+              </div>
+
+              {/* Category Filter Pills: Sectional, Full-Length, PYQ */}
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className={`btn ${activeCategoryFilter === 'ALL' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ fontSize: '0.8rem', padding: '0.3rem 0.75rem' }}
+                  onClick={() => setActiveCategoryFilter('ALL')}
+                >
+                  All Categories ({tests.length})
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${activeCategoryFilter === 'sectional' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ fontSize: '0.8rem', padding: '0.3rem 0.75rem' }}
+                  onClick={() => setActiveCategoryFilter('sectional')}
+                >
+                  1. Sectional Tests ({tests.filter((t) => t.test_type === 'sectional').length})
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${activeCategoryFilter === 'full_length' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ fontSize: '0.8rem', padding: '0.3rem 0.75rem' }}
+                  onClick={() => setActiveCategoryFilter('full_length')}
+                >
+                  2. Full-Length Mocks ({tests.filter((t) => t.test_type === 'full_length').length})
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${activeCategoryFilter === 'pyq' ? 'btn-primary' : 'btn-outline'}`}
+                  style={{ fontSize: '0.8rem', padding: '0.3rem 0.75rem' }}
+                  onClick={() => setActiveCategoryFilter('pyq')}
+                >
+                  3. PYQ Papers ({tests.filter((t) => t.test_type === 'pyq').length})
+                </button>
+              </div>
+
+              {testsError && (
+                <div className="status-pill status-error" style={{ display: 'block', margin: '1rem 0', padding: '0.75rem' }}>
+                  {testsError}
+                </div>
+              )}
+
+              {loadingTests ? (
+                <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '3rem' }}>
+                  Loading tests from PostgreSQL...
+                </p>
+              ) : filteredTests.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+                  <p style={{ fontSize: '1rem' }}>No published tests found in this category.</p>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1rem' }}>
+                  {filteredTests.map((t) => {
+                    const hasQuestions = (t.question_count || 0) > 0;
+                    const hasAttempted = Boolean(t.latest_attempt_id);
+
+                    return (
+                      <div
+                        key={t.id}
+                        style={{
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius)',
+                          padding: '1.25rem',
+                          backgroundColor: 'var(--color-surface)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          boxShadow: 'var(--shadow)',
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <span className="status-pill status-primary" style={{ fontSize: '0.7rem', textTransform: 'uppercase' }}>
+                              {t.test_type.replace('_', ' ')} #{t.test_number || 1}
+                            </span>
+                            <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>
+                              {t.access_type.toUpperCase()}
+                            </span>
+                          </div>
+
+                          <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-primary)', marginBottom: '0.35rem' }}>
+                            {t.title}
+                          </h4>
+
+                          <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '0.85rem' }}>
+                            {t.description || 'Standard CUET PG pattern test series with positive and negative marking.'}
+                          </p>
+                        </div>
+
+                        <div>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', backgroundColor: '#f8fafc', padding: '0.5rem', borderRadius: 'var(--radius)', fontSize: '0.75rem', marginBottom: '0.85rem' }}>
+                            <div>
+                              <span style={{ color: 'var(--color-text-muted)' }}>Duration:</span>
+                              <div style={{ fontWeight: 600 }}>{t.duration_minutes} min</div>
+                            </div>
+                            <div>
+                              <span style={{ color: 'var(--color-text-muted)' }}>Marking:</span>
+                              <div style={{ fontWeight: 600 }}>+{t.positive_marks} / -{t.negative_marks}</div>
+                            </div>
+                            <div>
+                              <span style={{ color: 'var(--color-text-muted)' }}>Questions:</span>
+                              <div style={{ fontWeight: 600, color: hasQuestions ? '#16a34a' : '#dc2626' }}>
+                                {t.question_count || 0} Qs
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Attempt Status Badge if student attempted this test */}
+                          {hasAttempted && (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', padding: '0.35rem 0.5rem', backgroundColor: '#eff6ff', borderRadius: '4px', fontSize: '0.75rem' }}>
+                              <span>Status: <strong>{t.latest_attempt_status?.toUpperCase()}</strong></span>
+                              {t.latest_attempt_score !== null && (
+                                <span style={{ fontWeight: 700, color: '#16a34a' }}>Score: {t.latest_attempt_score}</span>
+                              )}
+                            </div>
+                          )}
+
+                          <button
+                            type="button"
+                            className="btn btn-primary"
+                            style={{ width: '100%', fontSize: '0.9rem', fontWeight: 700 }}
+                            onClick={() => handleOpenInstructions(t.id)}
+                            disabled={!hasQuestions}
+                          >
+                            {t.latest_attempt_status === 'in_progress' ? 'Resume Test &rarr;' : hasAttempted ? 'Take / Retake Test &rarr;' : 'Open Test Instructions &rarr;'}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

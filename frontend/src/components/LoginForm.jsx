@@ -76,6 +76,29 @@ export default function LoginForm({ onSuccess, onSwitchToRegister }) {
         <button
           type="button"
           onClick={async () => {
+            setEmail('priya.sharma@example.com');
+            setPassword('Student@8218');
+            setError(null);
+            setSubmitting(true);
+            try {
+              const user = await login('priya.sharma@example.com', 'Student@8218');
+              if (onSuccess) onSuccess(user);
+            } catch (err) {
+              setError(err.message || 'Student login failed.');
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+          className="btn btn-outline"
+          style={{ width: '100%', marginTop: '0.75rem', borderColor: '#16a34a', color: '#166534', fontWeight: 600 }}
+          disabled={submitting}
+        >
+          🎓 1-Click Sign In as Student (Priya Sharma)
+        </button>
+
+        <button
+          type="button"
+          onClick={async () => {
             setEmail('rishabhmyp@gmail.com');
             setPassword('Admin@8218');
             setError(null);
@@ -90,7 +113,7 @@ export default function LoginForm({ onSuccess, onSwitchToRegister }) {
             }
           }}
           className="btn btn-outline"
-          style={{ width: '100%', marginTop: '0.75rem', borderColor: '#3b82f6', color: '#1d4ed8', fontWeight: 600 }}
+          style={{ width: '100%', marginTop: '0.5rem', borderColor: '#3b82f6', color: '#1d4ed8', fontWeight: 600 }}
           disabled={submitting}
         >
           ⚡ 1-Click Sign In as Administrator (Rishabh Keshari)

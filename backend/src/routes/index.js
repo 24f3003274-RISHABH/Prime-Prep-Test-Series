@@ -5,6 +5,7 @@ import adminRoutes from './adminRoutes.js';
 import subjectRoutes from './subjectRoutes.js';
 import chapterRoutes from './chapterRoutes.js';
 import testRoutes from './testRoutes.js';
+import studentRoutes from './studentRoutes.js';
 
 const router = Router();
 
@@ -18,6 +19,9 @@ router.use('/auth', authRoutes);
 router.use('/subjects', subjectRoutes);
 router.use('/chapters', chapterRoutes);
 router.use('/tests', testRoutes);
+
+// Mount student examination portal routes at /api/student
+router.use('/student', studentRoutes);
 
 // Mount administrative routes at /api/admin
 router.use('/admin', adminRoutes);
