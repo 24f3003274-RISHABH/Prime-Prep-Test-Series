@@ -72,6 +72,29 @@ export default function LoginForm({ onSuccess, onSwitchToRegister }) {
         <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '0.5rem' }} disabled={submitting}>
           {submitting ? 'Authenticating...' : 'Sign In'}
         </button>
+
+        <button
+          type="button"
+          onClick={async () => {
+            setEmail('rishabhmyp@gmail.com');
+            setPassword('Admin@8218');
+            setError(null);
+            setSubmitting(true);
+            try {
+              const user = await login('rishabhmyp@gmail.com', 'Admin@8218');
+              if (onSuccess) onSuccess(user);
+            } catch (err) {
+              setError(err.message || 'Admin login failed.');
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+          className="btn btn-outline"
+          style={{ width: '100%', marginTop: '0.75rem', borderColor: '#3b82f6', color: '#1d4ed8', fontWeight: 600 }}
+          disabled={submitting}
+        >
+          ⚡ 1-Click Sign In as Administrator (Rishabh Keshari)
+        </button>
       </form>
 
       <div style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>

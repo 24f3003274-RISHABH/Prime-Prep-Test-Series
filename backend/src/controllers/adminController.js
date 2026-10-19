@@ -540,8 +540,17 @@ export const getTestsByChapter = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Chapter not found.' });
     }
 
-    const { testType } = req.query;
-    const filters = { publishedOnly: !isAdmin };
+    const { testType, isPublished, status } = req.query;
+    const filters = {};
+    if (!isAdmin) {
+      filters.publishedOnly = true;
+    } else {
+      if (status === 'published' || isPublished === 'true' || isPublished === true) {
+        filters.isPublished = true;
+      } else if (status === 'draft' || isPublished === 'false' || isPublished === false) {
+        filters.isPublished = false;
+      }
+    }
     if (testType) filters.testType = testType;
 
     const tests = await adminRepo.listTestsByChapter(chapterId, filters);
@@ -643,6 +652,13 @@ export const createTest = async (req, res, next) => {
     const finalStatus = publicationStatus && validStatus.includes(publicationStatus)
       ? publicationStatus
       : (isPublished ? 'published' : 'draft');
+
+    if (finalStatus === 'published') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot publish a test with no questions. Please create the test as draft and add questions before publishing.',
+      });
+    }
 
     const newTest = await adminRepo.createTest({
       chapterId,
@@ -818,6 +834,19 @@ export const updateTest = async (req, res, next) => {
       updatePayload.publication_status = isPublished ? 'published' : 'draft';
     }
 
+    const willBePublished =
+      updatePayload.publication_status === 'published' || updatePayload.is_published === true;
+
+    if (willBePublished) {
+      const qCount = parseInt(current.question_count, 10) || 0;
+      if (qCount === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot publish a test with no questions. Please add questions before publishing.',
+        });
+      }
+    }
+
     const updated = await adminRepo.updateTest(id, updatePayload);
 
     await adminRepo.recordAuditLog({
@@ -868,6 +897,16 @@ export const updateTestStatus = async (req, res, next) => {
     const current = await adminRepo.getTestById(id);
     if (!current) {
       return res.status(404).json({ success: false, message: 'Test not found.' });
+    }
+
+    if (targetStatus === 'published') {
+      const qCount = parseInt(current.question_count, 10) || 0;
+      if (qCount === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot publish a test with no questions. Please add questions before publishing.',
+        });
+      }
     }
 
     const updated = await adminRepo.updateTestStatus(id, targetStatus);

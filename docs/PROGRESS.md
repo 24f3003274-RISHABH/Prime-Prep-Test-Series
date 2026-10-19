@@ -77,11 +77,46 @@ ORDER BY u.created_at DESC;
 
 ## 3. Automated Test Suite Results
 
-All 30 backend tests passed with zero failures:
+All 45 backend tests passed with zero failures:
 
 | Suite | Tests | Result |
 |---|---|---|
 | `backend/tests/auth.test.js` | 13 tests | **13/13 Passed** |
 | `backend/tests/admin.test.js` | 16 tests | **16/16 Passed** |
+| `backend/tests/bulk_upload.test.js` | 15 tests | **15/15 Passed** |
 | `backend/tests/health.test.js` | 1 test | **1/1 Passed** |
-| **Total** | **30 tests** | **30/30 Passed (100%)** |
+| **Total** | **45 tests** | **45/45 Passed (100%)** |
+
+---
+
+## 4. Phase 6: Admin Bulk Question Upload Engine
+
+1. **Multi-Step Guided Admin Workflow:**
+   - **Step 1:** Select Subject dynamically loaded from PostgreSQL.
+   - **Step 2:** Select Chapter dynamically loaded under the selected Subject.
+   - **Step 3:** Select Test Category (`sectional`, `full_length`, `pyq`).
+   - **Step 4:** Select destination test by title and number, with inline quick-create test capability. Questions link directly to the test's database UUID.
+   - **Step 5:** Upload `.xlsx`, `.xls`, or `.csv` spreadsheet file with flexible column headers.
+
+2. **Spreadsheet Format & Column Mapping:**
+   - Standard columns: `Question`, `Option A`, `Option B`, `Option C`, `Option D`, `Answer`, `Solution`.
+   - Optional destination columns: `Subject`, `Chapter`, `Test Type`, `Test Number`.
+   - Header variation tolerance (case-insensitive, whitespace/hyphen stripped).
+   - Strict validation: Mismatches between spreadsheet metadata and selected test are rejected. Missing options, empty question text, and answers outside A-D are rejected with exact physical spreadsheet row numbers.
+
+3. **Validation & Preview Before Commit:**
+   - `POST /api/admin/questions/import/preview`: Parses and validates spreadsheet without modifying database records.
+   - Duplicate question detection: Warns administrator if uploaded questions already exist in the target test.
+   - Preview shows first 5 valid questions, total counts, and error list with row numbers.
+
+4. **Atomic Transactional Import:**
+   - `POST /api/admin/questions/import/confirm`: Re-validates admin privileges and destination test under row lock (`FOR UPDATE`).
+   - Executes inside a single ACID PostgreSQL transaction (`BEGIN ... COMMIT / ROLLBACK`).
+   - Appends questions sequentially starting at `max(display_order) + 1` in `test_questions`.
+   - Rollback safety: If any question fails validation or constraint, zero rows are committed.
+   - Audit logging in `admin_audit_logs`.
+
+5. **Post-Import Reporting:**
+   - Displays imported count, test metadata, and new total question count.
+   - Allows immediate navigation to question viewer or next upload.
+

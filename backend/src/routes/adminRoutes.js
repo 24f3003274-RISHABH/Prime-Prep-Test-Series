@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import * as adminController from '../controllers/adminController.js';
+import * as questionController from '../controllers/questionController.js';
+import { uploadExcel } from '../middleware/upload.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
@@ -45,5 +47,10 @@ router.delete('/tests/:id', adminController.deleteTest);
 // 6. Chapter quotas & test series settings
 router.get('/chapters/:chapterId/settings', adminController.getChapterSettings);
 router.put('/chapters/:chapterId/settings', adminController.updateChapterSettings);
+
+// 7. Bulk Question Upload & Question Management (Phase 6)
+router.post('/questions/import/preview', uploadExcel.single('file'), questionController.previewQuestionImport);
+router.post('/questions/import/confirm', questionController.confirmQuestionImport);
+router.get('/tests/:testId/questions', questionController.getTestQuestions);
 
 export default router;

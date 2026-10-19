@@ -143,9 +143,9 @@ export const createSubject = async ({
 
   const res = await query(
     `INSERT INTO subjects (name, slug, description, paper_code, code, display_order, publication_status, is_active)
-     VALUES ($1, $2, $3, $4, $4, $5, $6, $7)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING id, name, slug, description, paper_code, code, publication_status, is_active, display_order, created_at, updated_at;`,
-    [name.trim(), slug.trim().toLowerCase(), description || null, paperCode || null, displayOrder, status, active]
+    [name.trim(), slug.trim().toLowerCase(), description || null, paperCode || null, paperCode || null, displayOrder, status, active]
   );
   return res.rows[0];
 };
@@ -568,48 +568,72 @@ export const createTest = async (data) => {
 };
 
 export const updateTest = async (id, fields = {}) => {
-  const allowed = [
-    'title', 'description', 'instructions', 'test_type', 'test_number',
-    'duration_minutes', 'positive_marks', 'negative_marks', 'access_type',
-    'max_attempts', 'publication_status', 'is_published', 'display_order', 'chapter_id'
-  ];
+  const columnUpdates = new Map();
+
+  if (fields.title !== undefined) {
+    columnUpdates.set('title', typeof fields.title === 'string' ? fields.title.trim() : fields.title);
+  }
+  if (fields.description !== undefined) {
+    columnUpdates.set('description', fields.description);
+  }
+  if (fields.instructions !== undefined) {
+    columnUpdates.set('instructions', fields.instructions);
+  }
+  if (fields.test_type !== undefined) {
+    columnUpdates.set('test_type', fields.test_type);
+  }
+  if (fields.test_number !== undefined) {
+    columnUpdates.set('test_number', fields.test_number);
+  }
+  if (fields.duration_minutes !== undefined) {
+    columnUpdates.set('duration_minutes', parseInt(fields.duration_minutes, 10));
+    columnUpdates.set('duration_seconds', parseInt(fields.duration_minutes, 10) * 60);
+  }
+  if (fields.positive_marks !== undefined) {
+    columnUpdates.set('positive_marks', fields.positive_marks);
+  }
+  if (fields.negative_marks !== undefined) {
+    columnUpdates.set('negative_marks', fields.negative_marks);
+  }
+  if (fields.access_type !== undefined) {
+    columnUpdates.set('access_type', fields.access_type);
+  }
+  if (fields.max_attempts !== undefined) {
+    columnUpdates.set('max_attempts', fields.max_attempts);
+  }
+  if (fields.display_order !== undefined) {
+    columnUpdates.set('display_order', fields.display_order);
+  }
+  if (fields.chapter_id !== undefined) {
+    columnUpdates.set('chapter_id', fields.chapter_id);
+  }
+
+  // Handle publication status & is_published consistently without duplicates
+  if (fields.publication_status !== undefined) {
+    const isPub = fields.publication_status === 'published';
+    columnUpdates.set('publication_status', fields.publication_status);
+    columnUpdates.set('status', fields.publication_status);
+    columnUpdates.set('is_published', isPub);
+  } else if (fields.is_published !== undefined) {
+    const isPub = Boolean(fields.is_published);
+    const pubStatus = isPub ? 'published' : 'draft';
+    columnUpdates.set('publication_status', pubStatus);
+    columnUpdates.set('status', pubStatus);
+    columnUpdates.set('is_published', isPub);
+  }
+
+  if (columnUpdates.size === 0) {
+    return getTestById(id);
+  }
 
   const setClauses = [];
   const values = [];
   let paramIdx = 1;
 
-  for (const [key, val] of Object.entries(fields)) {
-    if (allowed.includes(key) && val !== undefined) {
-      setClauses.push(`${key} = $${paramIdx}`);
-      values.push(key === 'title' && typeof val === 'string' ? val.trim() : val);
-      paramIdx++;
-
-      if (key === 'duration_minutes') {
-        setClauses.push(`duration_seconds = $${paramIdx}`);
-        values.push(parseInt(val, 10) * 60);
-        paramIdx++;
-      }
-      if (key === 'publication_status') {
-        setClauses.push(`status = $${paramIdx}`);
-        values.push(val);
-        paramIdx++;
-        setClauses.push(`is_published = $${paramIdx}`);
-        values.push(val === 'published');
-        paramIdx++;
-      }
-      if (key === 'is_published' && fields.publication_status === undefined) {
-        setClauses.push(`publication_status = $${paramIdx}`);
-        values.push(val ? 'published' : 'draft');
-        paramIdx++;
-        setClauses.push(`status = $${paramIdx}`);
-        values.push(val ? 'published' : 'draft');
-        paramIdx++;
-      }
-    }
-  }
-
-  if (setClauses.length === 0) {
-    return getTestById(id);
+  for (const [col, val] of columnUpdates.entries()) {
+    setClauses.push(`${col} = $${paramIdx}`);
+    values.push(val);
+    paramIdx++;
   }
 
   setClauses.push(`updated_at = NOW()`);

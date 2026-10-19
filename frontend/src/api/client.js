@@ -18,12 +18,24 @@ export function getApiBaseUrl() {
     const currentHost = window.location.hostname;
     const currentPort = window.location.port;
 
-    // If envUrl is configured to localhost:5000, BUT the browser is on Cloud Run, Vercel, or port 3000:
-    // Calling localhost:5000 from the browser results in "NetworkError when attempting to fetch resource".
+    // Mixed content protection: cannot call unencrypted http:// from https:// origin
+    if (window.location.protocol === 'https:' && envUrl.startsWith('http:')) {
+      return '/api';
+    }
+
+    // Remote client protection: if envUrl points to localhost/127.0.0.1 but current browser is NOT localhost
+    if (
+      (envUrl.includes('localhost') || envUrl.includes('127.0.0.1')) &&
+      currentHost !== 'localhost' &&
+      currentHost !== '127.0.0.1'
+    ) {
+      return '/api';
+    }
+
+    // If envUrl is configured to localhost:5000, BUT the browser is on port 3000
     if (envUrl.includes('localhost:5000') || envUrl.includes('127.0.0.1:5000')) {
       const isActualLocal5000 = (currentHost === 'localhost' || currentHost === '127.0.0.1') && currentPort === '5000';
       if (!isActualLocal5000) {
-        // Use relative '/api' on the current origin
         return '/api';
       }
     }
@@ -412,6 +424,35 @@ export async function updateChapterSettings(chapterId, settings) {
 
 export async function getDashboardStats() {
   const res = await apiFetch('/admin/stats');
+  return res.data;
+}
+
+// 5. Bulk Question Upload & Management (Phase 6)
+export async function previewQuestionImport(payload) {
+  if (payload instanceof FormData) {
+    const res = await apiFetch('/admin/questions/import/preview', {
+      method: 'POST',
+      body: payload,
+    });
+    return res.data;
+  }
+  const res = await apiFetch('/admin/questions/import/preview', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
+export async function confirmQuestionImport(payload) {
+  const res = await apiFetch('/admin/questions/import/confirm', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
+export async function getTestQuestions(testId) {
+  const res = await apiFetch(`/admin/tests/${testId}/questions`);
   return res.data;
 }
 
