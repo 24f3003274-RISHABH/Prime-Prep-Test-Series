@@ -1,4 +1,5 @@
 export const notFoundHandler = (req, res, next) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.status(404).json({
     success: false,
     error: {
@@ -9,6 +10,10 @@ export const notFoundHandler = (req, res, next) => {
 };
 
 export const errorHandler = (err, req, res, next) => {
+  if (res.headersSent) {
+    return next(err);
+  }
+
   let statusCode = err.statusCode || (res.statusCode >= 400 ? res.statusCode : 500);
   let errorCode = err.code || 'INTERNAL_SERVER_ERROR';
   let message = err.message || 'An unexpected error occurred.';
@@ -36,7 +41,8 @@ export const errorHandler = (err, req, res, next) => {
     method: req.method,
   });
 
-  res.status(statusCode).json({
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  return res.status(statusCode).json({
     success: false,
     error: {
       code: errorCode,

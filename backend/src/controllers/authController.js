@@ -2,7 +2,6 @@ import * as authService from '../services/authService.js';
 import {
   validateRegisterInput,
   validateLoginInput,
-  validateAdminSetupInput,
 } from '../validators/authValidator.js';
 
 export const register = async (req, res, next) => {
@@ -53,39 +52,6 @@ export const login = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'Login successful.',
-      token: result.token,
-      user: result.user,
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-export const setupAdmin = async (req, res, next) => {
-  try {
-    const { isValid, errors, sanitized } = validateAdminSetupInput(req.body);
-
-    if (!isValid) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: errors.join(' '),
-          details: errors,
-        },
-      });
-    }
-
-    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-
-    const result = await authService.setupInitialAdmin({
-      ...sanitized,
-      clientIp,
-    });
-
-    return res.status(201).json({
-      success: true,
-      message: 'Initial administrator created successfully.',
       token: result.token,
       user: result.user,
     });

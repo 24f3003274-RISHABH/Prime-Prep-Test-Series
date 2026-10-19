@@ -1,7 +1,13 @@
 import app from './app.js';
 import { config } from './config/env.js';
+import { ensureAdminAccount } from './repositories/userRepository.js';
 
 const PORT = config.port || 5000;
+
+// Idempotently ensure administrator account is provisioned
+ensureAdminAccount().catch((err) => {
+  console.error('[Admin Provisioning]:', err?.message);
+});
 
 const server = app.listen(PORT, () => {
   console.log(`=========================================`);

@@ -1,13 +1,24 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import backendApp from './backend/src/app.js';
+import { ensureAdminAccount } from './backend/src/repositories/userRepository.js';
 
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-  // Mount Express Backend (handles /api/health and all future /api routes)
+  // Mount Express Backend (handles /api/health and all /api routes)
   app.use(backendApp);
+
+  // Idempotently ensure administrator account is provisioned in PostgreSQL
+  try {
+    await ensureAdminAccount();
+  } catch (err: any) {
+    console.error('[Admin Provisioning]:', err?.message);
+  }
 
   // Vite development middleware for the React frontend
   if (process.env.NODE_ENV === 'production') {

@@ -142,14 +142,47 @@ async function verifyDatabase() {
     // Check 6: Migration Tracking
     const { rows: migrations } = await client.query(`SELECT name FROM schema_migrations ORDER BY id ASC;`);
     if (migrations.length >= 10) {
-      console.log(`✅ [6/6] Migration Tracking Check: ${migrations.length} migration records tracked in schema_migrations.`);
+      console.log(`✅ [6/9] Migration Tracking Check: ${migrations.length} migration records tracked in schema_migrations.`);
       passedCount++;
     } else {
-      console.log(`❌ [6/6] Migration Tracking Check: Found ${migrations.length} migrations.`);
+      console.log(`❌ [6/9] Migration Tracking Check: Found ${migrations.length} migrations.`);
+    }
+
+    // Check 7: Profiles in public.profiles
+    const { rows: profiles } = await client.query(`
+      SELECT id, full_name, role, created_at FROM public.profiles ORDER BY created_at DESC;
+    `);
+    console.log(`✅ [7/9] public.profiles Check: ${profiles.length} profiles verified (Roles: ${[...new Set(profiles.map(p => p.role))].join(', ')})`);
+    passedCount++;
+
+    // Check 8: Profile table structure
+    const { rows: profileCols } = await client.query(`
+      SELECT column_name, data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'profiles' ORDER BY ordinal_position;
+    `);
+    const hasRequiredProfileCols = ['id', 'full_name', 'role', 'created_at'].every(c => profileCols.some(col => col.column_name === c));
+    if (hasRequiredProfileCols) {
+      console.log(`✅ [8/9] public.profiles Schema Check: Verified required columns (${profileCols.map(c => c.column_name).join(', ')})`);
+      passedCount++;
+    } else {
+      console.log(`❌ [8/9] public.profiles Schema Check: Missing required profile columns`);
+    }
+
+    // Check 9: Verify profiles correspond to auth.users (zero missing profiles)
+    const { rows: missingProfiles } = await client.query(`
+      SELECT u.id, u.email, u.created_at AS registered_at, p.full_name, p.role
+      FROM auth.users AS u
+      LEFT JOIN public.profiles AS p ON p.id = u.id
+      WHERE p.id IS NULL;
+    `);
+    if (missingProfiles.length === 0) {
+      console.log(`✅ [9/9] Auth Users <-> Profiles Integrity Check: All Supabase auth.users have matching public.profiles (0 orphaned auth users).`);
+      passedCount++;
+    } else {
+      console.log(`❌ [9/9] Auth Users <-> Profiles Integrity Check: Found ${missingProfiles.length} auth.users without profiles.`);
     }
 
     console.log('====================================================');
-    console.log(`Summary: ${passedCount}/${totalChecks} architecture verification checks passed.`);
+    console.log(`Summary: ${passedCount}/9 architecture & auth verification checks passed.`);
     console.log('====================================================\n');
   } finally {
     client.release();

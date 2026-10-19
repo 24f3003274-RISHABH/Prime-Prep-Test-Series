@@ -2,14 +2,13 @@ import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import LoginForm from './components/LoginForm.jsx';
 import RegisterForm from './components/RegisterForm.jsx';
-import AdminSetupForm from './components/AdminSetupForm.jsx';
 import StudentDashboard from './components/StudentDashboard.jsx';
 import AdminDashboard from './components/AdminDashboard.jsx';
 import { getHealthStatus } from './api/client.js';
 
 function AppContent() {
   const { user, isAuthenticated, isAdmin, loading, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState('login'); // 'login' | 'register' | 'admin-setup' | 'system'
+  const [activeTab, setActiveTab] = useState('login'); // 'login' | 'register' | 'system'
   const [health, setHealth] = useState(null);
   const [healthLoading, setHealthLoading] = useState(false);
 
@@ -30,7 +29,7 @@ function AppContent() {
       <header className="app-header">
         <div className="brand-container">
           <span className="brand-title">PrimePrep</span>
-          <span className="brand-badge">Phase 3: Auth & RBAC</span>
+          <span className="brand-badge">CUET PG Prep</span>
         </div>
 
         <nav className="nav-links">
@@ -74,7 +73,7 @@ function AppContent() {
             <p style={{ color: 'var(--color-text-muted)' }}>Verifying session identity...</p>
           </div>
         ) : isAuthenticated ? (
-          // Authenticated view: Route based on verified server role
+          // Authenticated view: Route based on verified server-side role
           isAdmin ? <AdminDashboard /> : <StudentDashboard />
         ) : (
           // Unauthenticated view
@@ -93,12 +92,6 @@ function AppContent() {
                 Student Registration
               </button>
               <button
-                className={`auth-tab ${activeTab === 'admin-setup' ? 'active' : ''}`}
-                onClick={() => setActiveTab('admin-setup')}
-              >
-                Admin Bootstrap
-              </button>
-              <button
                 className={`auth-tab ${activeTab === 'system' ? 'active' : ''}`}
                 onClick={() => setActiveTab('system')}
               >
@@ -111,7 +104,6 @@ function AppContent() {
                 <LoginForm
                   onSuccess={() => {}}
                   onSwitchToRegister={() => setActiveTab('register')}
-                  onSwitchToAdminSetup={() => setActiveTab('admin-setup')}
                 />
               )}
 
@@ -122,19 +114,12 @@ function AppContent() {
                 />
               )}
 
-              {activeTab === 'admin-setup' && (
-                <AdminSetupForm
-                  onSuccess={() => {}}
-                  onSwitchToLogin={() => setActiveTab('login')}
-                />
-              )}
-
               {activeTab === 'system' && (
                 <div>
                   <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <h3 className="card-title">Backend API & Database Connectivity</h3>
-                      <p className="card-subtitle">Direct PostgreSQL connection via Node <code>pg</code> connection pool</p>
+                      <p className="card-subtitle">Direct PostgreSQL connection via Node <code>pg</code> connection pool & Supabase Auth</p>
                     </div>
                     <button className="btn btn-outline" onClick={fetchHealth} disabled={healthLoading}>
                       {healthLoading ? 'Pinging...' : 'Ping Health Endpoint'}

@@ -52,26 +52,3 @@ export const validateLoginInput = (data = {}) => {
     },
   };
 };
-
-export const validateAdminSetupInput = (data = {}) => {
-  const errors = [];
-  const { setupSecret, fullName, email, password } = data;
-
-  if (!setupSecret || typeof setupSecret !== 'string') {
-    errors.push('Setup secret is required.');
-  }
-
-  const registerValidation = validateRegisterInput({ fullName, email, password });
-  if (!registerValidation.isValid) {
-    errors.push(...registerValidation.errors);
-  }
-
-  return {
-    isValid: errors.length === 0,
-    errors,
-    sanitized: {
-      setupSecret: setupSecret ? setupSecret.trim() : '',
-      ...registerValidation.sanitized,
-    },
-  };
-};

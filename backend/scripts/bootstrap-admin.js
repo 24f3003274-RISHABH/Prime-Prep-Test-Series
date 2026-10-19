@@ -16,7 +16,7 @@ const envPaths = [
 
 for (const envPath of envPaths) {
   if (fs.existsSync(envPath)) {
-    dotenv.config({ path: envPath });
+    dotenv.config({ path: envPath, override: true });
     break;
   }
 }

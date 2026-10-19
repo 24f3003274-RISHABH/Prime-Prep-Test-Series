@@ -1,5 +1,4 @@
 import * as adminRepo from '../repositories/adminRepository.js';
-import { query } from '../config/db.js';
 
 // ==========================================
 // 1. DASHBOARD STATS
@@ -21,7 +20,10 @@ export const getStats = async (req, res, next) => {
 // ==========================================
 export const getSubjects = async (req, res, next) => {
   try {
-    const subjects = await adminRepo.listSubjects();
+    const isAdmin = req.user?.role === 'admin';
+    const publishedOnly = !isAdmin || req.query.status === 'published';
+    const subjects = await adminRepo.listSubjects({ publishedOnly });
+
     return res.status(200).json({
       success: true,
       data: subjects,
@@ -38,7 +40,8 @@ export const getSubject = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid subject ID format.' });
     }
 
-    const subject = await adminRepo.getSubjectById(id);
+    const isAdmin = req.user?.role === 'admin';
+    const subject = await adminRepo.getSubjectById(id, { publishedOnly: !isAdmin });
     if (!subject) {
       return res.status(404).json({ success: false, message: 'Subject not found.' });
     }
@@ -54,7 +57,7 @@ export const getSubject = async (req, res, next) => {
 
 export const createSubject = async (req, res, next) => {
   try {
-    const { name, slug, description, displayOrder, isActive } = req.body;
+    const { name, slug, description, paperCode, displayOrder, publicationStatus, isActive } = req.body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return res.status(400).json({ success: false, message: 'Subject name is required.' });
@@ -65,21 +68,36 @@ export const createSubject = async (req, res, next) => {
       ? slug.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
       : name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
-    // Check slug uniqueness
-    const existing = await adminRepo.getSubjectBySlug(finalSlug);
-    if (existing) {
+    // Check slug and name uniqueness
+    const existingSlug = await adminRepo.getSubjectBySlug(finalSlug);
+    if (existingSlug) {
       return res.status(409).json({
         success: false,
         message: `A subject with slug "${finalSlug}" already exists.`,
       });
     }
 
+    const existingName = await adminRepo.getSubjectByName(name);
+    if (existingName) {
+      return res.status(409).json({
+        success: false,
+        message: `A subject with name "${name.trim()}" already exists.`,
+      });
+    }
+
+    const validStatus = ['draft', 'published', 'archived'];
+    const finalStatus = publicationStatus && validStatus.includes(publicationStatus)
+      ? publicationStatus
+      : (isActive !== undefined && !isActive ? 'archived' : 'published');
+
     const newSubject = await adminRepo.createSubject({
-      name,
+      name: name.trim(),
       slug: finalSlug,
       description,
+      paperCode,
       displayOrder: displayOrder !== undefined ? parseInt(displayOrder, 10) : 0,
-      isActive: isActive !== undefined ? Boolean(isActive) : true,
+      publicationStatus: finalStatus,
+      isActive: finalStatus === 'published',
     });
 
     await adminRepo.recordAuditLog({
@@ -112,13 +130,36 @@ export const updateSubject = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Subject not found.' });
     }
 
-    const { name, slug, description, displayOrder, isActive } = req.body;
+    const { name, slug, description, paperCode, displayOrder, publicationStatus, isActive } = req.body;
     const updatePayload = {};
 
-    if (name !== undefined) updatePayload.name = name.trim();
+    if (name !== undefined) {
+      const cleanName = name.trim();
+      const existingName = await adminRepo.getSubjectByName(cleanName);
+      if (existingName && existingName.id !== id) {
+        return res.status(409).json({
+          success: false,
+          message: `A subject with name "${cleanName}" already exists.`,
+        });
+      }
+      updatePayload.name = cleanName;
+    }
+
     if (description !== undefined) updatePayload.description = description;
+    if (paperCode !== undefined) updatePayload.paper_code = paperCode;
     if (displayOrder !== undefined) updatePayload.display_order = parseInt(displayOrder, 10);
-    if (isActive !== undefined) updatePayload.is_active = Boolean(isActive);
+
+    if (publicationStatus !== undefined) {
+      const valid = ['draft', 'published', 'archived'];
+      if (!valid.includes(publicationStatus)) {
+        return res.status(400).json({ success: false, message: `Invalid publicationStatus. Allowed: ${valid.join(', ')}` });
+      }
+      updatePayload.publication_status = publicationStatus;
+      updatePayload.is_active = publicationStatus === 'published';
+    } else if (isActive !== undefined) {
+      updatePayload.is_active = Boolean(isActive);
+      updatePayload.publication_status = isActive ? 'published' : 'archived';
+    }
 
     if (slug !== undefined) {
       const cleanSlug = slug.trim().toLowerCase();
@@ -145,6 +186,49 @@ export const updateSubject = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'Subject updated successfully.',
+      data: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateSubjectStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, publicationStatus } = req.body;
+    const targetStatus = (publicationStatus || status || '').trim().toLowerCase();
+
+    if (!adminRepo.isValidUuid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid subject ID format.' });
+    }
+
+    const valid = ['draft', 'published', 'archived'];
+    if (!valid.includes(targetStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status "${targetStatus}". Allowed values: ${valid.join(', ')}.`,
+      });
+    }
+
+    const current = await adminRepo.getSubjectById(id);
+    if (!current) {
+      return res.status(404).json({ success: false, message: 'Subject not found.' });
+    }
+
+    const updated = await adminRepo.updateSubjectStatus(id, targetStatus);
+
+    await adminRepo.recordAuditLog({
+      adminUserId: req.user?.id,
+      action: `SUBJECT_STATUS_${targetStatus.toUpperCase()}`,
+      entityType: 'subject',
+      entityId: id,
+      details: { previousStatus: current.publication_status, newStatus: targetStatus },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Subject publication status updated to ${targetStatus}.`,
       data: updated,
     });
   } catch (error) {
@@ -194,7 +278,13 @@ export const getChaptersBySubject = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid subject ID format.' });
     }
 
-    const chapters = await adminRepo.listChaptersBySubject(subjectId);
+    const isAdmin = req.user?.role === 'admin';
+    const parentSubject = await adminRepo.getSubjectById(subjectId, { publishedOnly: !isAdmin });
+    if (!parentSubject) {
+      return res.status(404).json({ success: false, message: 'Subject not found.' });
+    }
+
+    const chapters = await adminRepo.listChaptersBySubject(subjectId, { publishedOnly: !isAdmin });
     return res.status(200).json({
       success: true,
       data: chapters,
@@ -211,7 +301,8 @@ export const getChapter = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid chapter ID format.' });
     }
 
-    const chapter = await adminRepo.getChapterById(id);
+    const isAdmin = req.user?.role === 'admin';
+    const chapter = await adminRepo.getChapterById(id, { publishedOnly: !isAdmin });
     if (!chapter) {
       return res.status(404).json({ success: false, message: 'Chapter not found.' });
     }
@@ -228,7 +319,7 @@ export const getChapter = async (req, res, next) => {
 export const createChapter = async (req, res, next) => {
   try {
     const { subjectId } = req.params;
-    const { name, description, displayOrder, isActive } = req.body;
+    const { name, description, displayOrder, publicationStatus, isActive } = req.body;
 
     if (!adminRepo.isValidUuid(subjectId)) {
       return res.status(400).json({ success: false, message: 'Invalid subject ID format.' });
@@ -243,12 +334,27 @@ export const createChapter = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Chapter name is required.' });
     }
 
+    // Check duplicate chapter name within the subject
+    const existing = await adminRepo.getChapterByNameInSubject(subjectId, name.trim());
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: `A chapter named "${name.trim()}" already exists in this subject.`,
+      });
+    }
+
+    const validStatus = ['draft', 'published', 'archived'];
+    const finalStatus = publicationStatus && validStatus.includes(publicationStatus)
+      ? publicationStatus
+      : (isActive !== undefined && !isActive ? 'archived' : 'published');
+
     const newChapter = await adminRepo.createChapter({
       subjectId,
-      name,
+      name: name.trim(),
       description,
       displayOrder: displayOrder !== undefined ? parseInt(displayOrder, 10) : 0,
-      isActive: isActive !== undefined ? Boolean(isActive) : true,
+      publicationStatus: finalStatus,
+      isActive: finalStatus === 'published',
     });
 
     await adminRepo.recordAuditLog({
@@ -281,13 +387,36 @@ export const updateChapter = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Chapter not found.' });
     }
 
-    const { name, description, displayOrder, isActive, subjectId } = req.body;
+    const { name, description, displayOrder, publicationStatus, isActive, subjectId } = req.body;
     const updatePayload = {};
 
-    if (name !== undefined) updatePayload.name = name.trim();
+    if (name !== undefined) {
+      const cleanName = name.trim();
+      const parentSubjectId = subjectId || current.subject_id;
+      const existing = await adminRepo.getChapterByNameInSubject(parentSubjectId, cleanName);
+      if (existing && existing.id !== id) {
+        return res.status(409).json({
+          success: false,
+          message: `A chapter named "${cleanName}" already exists in this subject.`,
+        });
+      }
+      updatePayload.name = cleanName;
+    }
+
     if (description !== undefined) updatePayload.description = description;
     if (displayOrder !== undefined) updatePayload.display_order = parseInt(displayOrder, 10);
-    if (isActive !== undefined) updatePayload.is_active = Boolean(isActive);
+
+    if (publicationStatus !== undefined) {
+      const valid = ['draft', 'published', 'archived'];
+      if (!valid.includes(publicationStatus)) {
+        return res.status(400).json({ success: false, message: `Invalid publicationStatus. Allowed: ${valid.join(', ')}` });
+      }
+      updatePayload.publication_status = publicationStatus;
+      updatePayload.is_active = publicationStatus === 'published';
+    } else if (isActive !== undefined) {
+      updatePayload.is_active = Boolean(isActive);
+      updatePayload.publication_status = isActive ? 'published' : 'archived';
+    }
 
     if (subjectId !== undefined) {
       if (!adminRepo.isValidUuid(subjectId)) {
@@ -313,6 +442,49 @@ export const updateChapter = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'Chapter updated successfully.',
+      data: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateChapterStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, publicationStatus } = req.body;
+    const targetStatus = (publicationStatus || status || '').trim().toLowerCase();
+
+    if (!adminRepo.isValidUuid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid chapter ID format.' });
+    }
+
+    const valid = ['draft', 'published', 'archived'];
+    if (!valid.includes(targetStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status "${targetStatus}". Allowed values: ${valid.join(', ')}.`,
+      });
+    }
+
+    const current = await adminRepo.getChapterById(id);
+    if (!current) {
+      return res.status(404).json({ success: false, message: 'Chapter not found.' });
+    }
+
+    const updated = await adminRepo.updateChapterStatus(id, targetStatus);
+
+    await adminRepo.recordAuditLog({
+      adminUserId: req.user?.id,
+      action: `CHAPTER_STATUS_${targetStatus.toUpperCase()}`,
+      entityType: 'chapter',
+      entityId: id,
+      details: { previousStatus: current.publication_status, newStatus: targetStatus },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Chapter publication status updated to ${targetStatus}.`,
       data: updated,
     });
   } catch (error) {
@@ -362,10 +534,15 @@ export const getTestsByChapter = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid chapter ID format.' });
     }
 
-    const { testType, isPublished } = req.query;
-    const filters = {};
+    const isAdmin = req.user?.role === 'admin';
+    const parentChapter = await adminRepo.getChapterById(chapterId, { publishedOnly: !isAdmin });
+    if (!parentChapter) {
+      return res.status(404).json({ success: false, message: 'Chapter not found.' });
+    }
+
+    const { testType } = req.query;
+    const filters = { publishedOnly: !isAdmin };
     if (testType) filters.testType = testType;
-    if (isPublished !== undefined) filters.isPublished = isPublished === 'true';
 
     const tests = await adminRepo.listTestsByChapter(chapterId, filters);
     return res.status(200).json({
@@ -384,7 +561,8 @@ export const getTest = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid test ID format.' });
     }
 
-    const testItem = await adminRepo.getTestById(id);
+    const isAdmin = req.user?.role === 'admin';
+    const testItem = await adminRepo.getTestById(id, { publishedOnly: !isAdmin });
     if (!testItem) {
       return res.status(404).json({ success: false, message: 'Test not found.' });
     }
@@ -413,12 +591,15 @@ export const createTest = async (req, res, next) => {
     const {
       title,
       description,
+      instructions,
       testType = 'sectional',
+      testNumber,
       durationMinutes = 30,
       positiveMarks = 4.0,
       negativeMarks = 1.0,
       accessType = 'paid',
       maxAttempts = 1,
+      publicationStatus = 'draft',
       isPublished = false,
       displayOrder = 0,
     } = req.body;
@@ -428,18 +609,18 @@ export const createTest = async (req, res, next) => {
     }
 
     const validTestTypes = ['sectional', 'full_length', 'pyq'];
-    if (!validTestTypes.includes(testType)) {
+    if (!validTestTypes.includes(testType.toLowerCase())) {
       return res.status(400).json({
         success: false,
-        message: `Invalid test type. Allowed types: ${validTestTypes.join(', ')}.`,
+        message: `Invalid test type "${testType}". Allowed types: ${validTestTypes.join(', ')}.`,
       });
     }
 
     const validAccessTypes = ['free', 'paid'];
-    if (!validAccessTypes.includes(accessType)) {
+    if (!validAccessTypes.includes(accessType.toLowerCase())) {
       return res.status(400).json({
         success: false,
-        message: `Invalid access type. Allowed values: ${validAccessTypes.join(', ')}.`,
+        message: `Invalid access type "${accessType}". Allowed values: ${validAccessTypes.join(', ')}.`,
       });
     }
 
@@ -458,25 +639,25 @@ export const createTest = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'negativeMarks must be non-negative.' });
     }
 
-    // A newly created test starts with 0 questions, so it cannot be published immediately
-    if (isPublished) {
-      return res.status(400).json({
-        success: false,
-        message: 'Cannot create a test directly in published status without questions. Please create as draft and map questions before publishing.',
-      });
-    }
+    const validStatus = ['draft', 'published', 'archived'];
+    const finalStatus = publicationStatus && validStatus.includes(publicationStatus)
+      ? publicationStatus
+      : (isPublished ? 'published' : 'draft');
 
     const newTest = await adminRepo.createTest({
       chapterId,
-      title,
+      title: title.trim(),
       description,
-      testType,
+      instructions,
+      testType: testType.toLowerCase(),
+      testNumber: testNumber !== undefined && testNumber !== null ? parseInt(testNumber, 10) : undefined,
       durationMinutes: duration,
       positiveMarks: posMarks,
       negativeMarks: negMarks,
-      accessType,
+      accessType: accessType.toLowerCase(),
       maxAttempts: parseInt(maxAttempts, 10) || 1,
-      isPublished: false,
+      publicationStatus: finalStatus,
+      isPublished: finalStatus === 'published',
       displayOrder: parseInt(displayOrder, 10) || 0,
     });
 
@@ -485,15 +666,24 @@ export const createTest = async (req, res, next) => {
       action: 'TEST_CREATED',
       entityType: 'test',
       entityId: newTest.id,
-      details: { title: newTest.title, testType, chapterId },
+      details: { title: newTest.title, testType, testNumber: newTest.test_number, chapterId },
     });
 
     return res.status(201).json({
       success: true,
-      message: 'Test created successfully as draft.',
+      message: `Test created successfully in ${finalStatus} status.`,
       data: newTest,
     });
   } catch (error) {
+    if (error.code === 'DUPLICATE_TEST_NUMBER' || error.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        error: {
+          code: 'DUPLICATE_TEST_NUMBER',
+          message: error.message || 'A test with this test number already exists in this chapter and category.',
+        },
+      });
+    }
     next(error);
   }
 };
@@ -513,12 +703,15 @@ export const updateTest = async (req, res, next) => {
     const {
       title,
       description,
+      instructions,
       testType,
+      testNumber,
       durationMinutes,
       positiveMarks,
       negativeMarks,
       accessType,
       maxAttempts,
+      publicationStatus,
       isPublished,
       displayOrder,
       chapterId,
@@ -528,21 +721,42 @@ export const updateTest = async (req, res, next) => {
 
     if (title !== undefined) updatePayload.title = title.trim();
     if (description !== undefined) updatePayload.description = description;
+    if (instructions !== undefined) updatePayload.instructions = instructions;
 
     if (testType !== undefined) {
       const validTestTypes = ['sectional', 'full_length', 'pyq'];
-      if (!validTestTypes.includes(testType)) {
+      if (!validTestTypes.includes(testType.toLowerCase())) {
         return res.status(400).json({ success: false, message: `Invalid test type. Allowed: ${validTestTypes.join(', ')}` });
       }
-      updatePayload.test_type = testType;
+      updatePayload.test_type = testType.toLowerCase();
+    }
+
+    if (testNumber !== undefined && testNumber !== null) {
+      const num = parseInt(testNumber, 10);
+      if (isNaN(num) || num <= 0) {
+        return res.status(400).json({ success: false, message: 'testNumber must be a positive integer.' });
+      }
+      const targetChapterId = chapterId || current.chapter_id;
+      const targetType = (testType || current.test_type).toLowerCase();
+      const existing = await adminRepo.getTestByNumberInChapter(targetChapterId, targetType, num);
+      if (existing && existing.id !== id) {
+        return res.status(409).json({
+          success: false,
+          error: {
+            code: 'DUPLICATE_TEST_NUMBER',
+            message: `Test #${num} already exists in this chapter for category "${targetType}".`,
+          },
+        });
+      }
+      updatePayload.test_number = num;
     }
 
     if (accessType !== undefined) {
       const validAccessTypes = ['free', 'paid'];
-      if (!validAccessTypes.includes(accessType)) {
+      if (!validAccessTypes.includes(accessType.toLowerCase())) {
         return res.status(400).json({ success: false, message: `Invalid access type. Allowed: ${validAccessTypes.join(', ')}` });
       }
-      updatePayload.access_type = accessType;
+      updatePayload.access_type = accessType.toLowerCase();
     }
 
     if (durationMinutes !== undefined) {
@@ -592,32 +806,23 @@ export const updateTest = async (req, res, next) => {
       updatePayload.chapter_id = chapterId;
     }
 
-    // CRITICAL VALIDATION: Check publication rules
-    if (isPublished === true || (isPublished === 'true')) {
-      const questionCheck = await query(
-        `SELECT COUNT(*)::int as count FROM test_questions WHERE test_id = $1;`,
-        [id]
-      );
-      const questionCount = questionCheck.rows[0]?.count || 0;
-
-      if (questionCount === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Cannot publish a test with no questions. Please map questions to the test before publishing.',
-        });
+    if (publicationStatus !== undefined) {
+      const valid = ['draft', 'published', 'archived'];
+      if (!valid.includes(publicationStatus)) {
+        return res.status(400).json({ success: false, message: `Invalid publicationStatus. Allowed: ${valid.join(', ')}` });
       }
-      updatePayload.is_published = true;
-    } else if (isPublished === false || (isPublished === 'false')) {
-      updatePayload.is_published = false;
+      updatePayload.publication_status = publicationStatus;
+      updatePayload.is_published = publicationStatus === 'published';
+    } else if (isPublished !== undefined) {
+      updatePayload.is_published = Boolean(isPublished);
+      updatePayload.publication_status = isPublished ? 'published' : 'draft';
     }
 
     const updated = await adminRepo.updateTest(id, updatePayload);
 
     await adminRepo.recordAuditLog({
       adminUserId: req.user?.id,
-      action: updatePayload.is_published !== undefined 
-        ? (updatePayload.is_published ? 'TEST_PUBLISHED' : 'TEST_UNPUBLISHED')
-        : 'TEST_UPDATED',
+      action: 'TEST_UPDATED',
       entityType: 'test',
       entityId: id,
       details: updatePayload,
@@ -626,6 +831,58 @@ export const updateTest = async (req, res, next) => {
     return res.status(200).json({
       success: true,
       message: 'Test updated successfully.',
+      data: updated,
+    });
+  } catch (error) {
+    if (error.code === 'DUPLICATE_TEST_NUMBER' || error.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        error: {
+          code: 'DUPLICATE_TEST_NUMBER',
+          message: error.message || 'Duplicate test number within this chapter.',
+        },
+      });
+    }
+    next(error);
+  }
+};
+
+export const updateTestStatus = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { status, publicationStatus } = req.body;
+    const targetStatus = (publicationStatus || status || '').trim().toLowerCase();
+
+    if (!adminRepo.isValidUuid(id)) {
+      return res.status(400).json({ success: false, message: 'Invalid test ID format.' });
+    }
+
+    const valid = ['draft', 'published', 'archived'];
+    if (!valid.includes(targetStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status "${targetStatus}". Allowed values: ${valid.join(', ')}.`,
+      });
+    }
+
+    const current = await adminRepo.getTestById(id);
+    if (!current) {
+      return res.status(404).json({ success: false, message: 'Test not found.' });
+    }
+
+    const updated = await adminRepo.updateTestStatus(id, targetStatus);
+
+    await adminRepo.recordAuditLog({
+      adminUserId: req.user?.id,
+      action: `TEST_STATUS_${targetStatus.toUpperCase()}`,
+      entityType: 'test',
+      entityId: id,
+      details: { previousStatus: current.publication_status, newStatus: targetStatus },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: `Test publication status updated to ${targetStatus}.`,
       data: updated,
     });
   } catch (error) {
@@ -668,6 +925,71 @@ export const deleteTest = async (req, res, next) => {
 // ==========================================
 // 5. TEST SERIES SETTINGS / QUOTAS
 // ==========================================
+export const getGlobalTestSeriesSettings = async (req, res, next) => {
+  try {
+    const settings = await adminRepo.getGlobalTestSeriesSettings();
+    return res.status(200).json({
+      success: true,
+      data: settings,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateGlobalTestSeriesSettings = async (req, res, next) => {
+  try {
+    const { settings } = req.body;
+    if (!Array.isArray(settings) || settings.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Settings must be a non-empty array of configuration objects (sectional, full_length, pyq).',
+      });
+    }
+
+    const validTestTypes = ['sectional', 'full_length', 'pyq'];
+    for (const item of settings) {
+      if (!item.test_type || !validTestTypes.includes(item.test_type.toLowerCase())) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid test_type "${item.test_type}". Allowed types: ${validTestTypes.join(', ')}.`,
+        });
+      }
+      const targetCount = parseInt(item.target_count, 10);
+      const defaultDuration = parseInt(item.default_duration_minutes, 10);
+      const freeCount = parseInt(item.free_test_count, 10);
+
+      if (isNaN(targetCount) || targetCount < 0) {
+        return res.status(400).json({ success: false, message: `target_count for ${item.test_type} must be non-negative.` });
+      }
+      if (isNaN(defaultDuration) || defaultDuration <= 0) {
+        return res.status(400).json({ success: false, message: `default_duration_minutes for ${item.test_type} must be > 0.` });
+      }
+      if (isNaN(freeCount) || freeCount < 0) {
+        return res.status(400).json({ success: false, message: `free_test_count for ${item.test_type} must be non-negative.` });
+      }
+    }
+
+    const updated = await adminRepo.updateGlobalTestSeriesSettings(settings);
+
+    await adminRepo.recordAuditLog({
+      adminUserId: req.user?.id,
+      action: 'GLOBAL_TEST_SERIES_SETTINGS_UPDATED',
+      entityType: 'test_series_settings',
+      entityId: null,
+      details: { settings: updated },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Global test-series default settings updated successfully. Existing tests and attempts are preserved.',
+      data: updated,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getChapterSettings = async (req, res, next) => {
   try {
     const { chapterId } = req.params;

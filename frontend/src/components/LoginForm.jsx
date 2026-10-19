@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 
-export default function LoginForm({ onSuccess, onSwitchToRegister, onSwitchToAdminSetup }) {
+export default function LoginForm({ onSuccess, onSwitchToRegister }) {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -12,14 +12,15 @@ export default function LoginForm({ onSuccess, onSwitchToRegister, onSwitchToAdm
     e.preventDefault();
     setError(null);
 
-    if (!email || !password) {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) {
       setError('Please provide both email and password.');
       return;
     }
 
     setSubmitting(true);
     try {
-      const user = await login(email, password);
+      const user = await login(cleanEmail, password);
       if (onSuccess) onSuccess(user);
     } catch (err) {
       setError(err.message || 'Login failed.');
@@ -44,11 +45,12 @@ export default function LoginForm({ onSuccess, onSwitchToRegister, onSwitchToAdm
             id="login-email"
             type="email"
             className="form-input"
-            placeholder="e.g. student@example.com"
+            placeholder="e.g. student@example.com or admin@primeprep.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             disabled={submitting}
             required
+            autoComplete="email"
           />
         </div>
 
@@ -63,6 +65,7 @@ export default function LoginForm({ onSuccess, onSwitchToRegister, onSwitchToAdm
             onChange={(e) => setPassword(e.target.value)}
             disabled={submitting}
             required
+            autoComplete="current-password"
           />
         </div>
 
@@ -79,17 +82,6 @@ export default function LoginForm({ onSuccess, onSwitchToRegister, onSwitchToAdm
           style={{ background: 'none', border: 'none', color: 'var(--color-accent)', fontWeight: 600, cursor: 'pointer' }}
         >
           Create student account
-        </button>
-      </div>
-
-      <div style={{ marginTop: '0.75rem', textAlign: 'center', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-        First-time setup?{' '}
-        <button
-          type="button"
-          onClick={onSwitchToAdminSetup}
-          style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', textDecoration: 'underline', cursor: 'pointer' }}
-        >
-          Bootstrap Initial Admin
         </button>
       </div>
     </div>

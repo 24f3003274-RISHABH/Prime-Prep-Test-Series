@@ -104,8 +104,43 @@ ORDER BY tc.table_name, tc.constraint_name;
 
 -- ----------------------------------------------------------------------------
 -- CHECK 6: Verify Applied Migrations Tracking
--- Expected Result: 10 rows showing applied migrations 001 through 010
+-- Expected Result: Migration records tracked in schema_migrations
 -- ----------------------------------------------------------------------------
 SELECT id, name, applied_at
 FROM schema_migrations
 ORDER BY id ASC;
+
+
+-- ----------------------------------------------------------------------------
+-- CHECK 7: Verify Profiles in public.profiles
+-- ----------------------------------------------------------------------------
+SELECT id, full_name, role, created_at
+FROM public.profiles
+ORDER BY created_at DESC;
+
+
+-- ----------------------------------------------------------------------------
+-- CHECK 8: Verify public.profiles Table Structure
+-- ----------------------------------------------------------------------------
+SELECT column_name, data_type
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'profiles'
+ORDER BY ordinal_position;
+
+
+-- ----------------------------------------------------------------------------
+-- CHECK 9: Verify profiles correspond to Auth users (identify any missing profiles)
+-- ----------------------------------------------------------------------------
+SELECT
+    u.id,
+    u.email,
+    u.email_confirmed_at,
+    u.created_at AS registered_at,
+    p.full_name,
+    p.role
+FROM auth.users AS u
+LEFT JOIN public.profiles AS p
+    ON p.id = u.id
+ORDER BY u.created_at DESC;
+

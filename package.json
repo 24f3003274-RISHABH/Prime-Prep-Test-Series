@@ -12,12 +12,14 @@
     "start:backend": "node backend/src/server.js",
     "test:backend": "node --test backend/tests/**/*.test.js",
     "db:migrate": "node backend/scripts/migrate.js",
+    "db:seed:admin": "node backend/scripts/seed-admin.js",
     "db:verify": "node backend/scripts/verify-schema.js",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
+    "@supabase/supabase-js": "^2.118.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
     "bcrypt": "^6.0.0",

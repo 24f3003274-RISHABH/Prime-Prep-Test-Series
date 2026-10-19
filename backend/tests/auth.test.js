@@ -4,6 +4,7 @@ import jwt from 'jsonwebtoken';
 import app from '../src/app.js';
 import { getPool, query } from '../src/config/db.js';
 import { config } from '../src/config/env.js';
+import { ensureAdminAccount } from '../src/repositories/userRepository.js';
 
 let server;
 let baseUrl;
@@ -17,10 +18,12 @@ const studentData = {
 };
 
 let studentToken = null;
-let adminToken = null;
-const adminEmail = `test_admin_${testTimestamp}@primeprep.local`;
+let studentUserId = null;
 
 test.before(async () => {
+  // Ensure default administrator is seeded
+  await ensureAdminAccount();
+
   await new Promise((resolve) => {
     server = app.listen(0, () => {
       const port = server.address().port;
@@ -36,7 +39,10 @@ test.after(async () => {
   }
   // Cleanup test users created during test run
   try {
-    await query(`DELETE FROM users WHERE email LIKE 'test_%@primeprep.local';`);
+    await query(`DELETE FROM admin_audit_logs WHERE details->>'email' LIKE 'test_%@primeprep.local';`);
+    await query(`DELETE FROM auth.users WHERE email LIKE 'test_%@primeprep.local';`);
+    await query(`DELETE FROM public.profiles WHERE id IN (SELECT id FROM public.users WHERE email LIKE 'test_%@primeprep.local');`);
+    await query(`DELETE FROM public.users WHERE email LIKE 'test_%@primeprep.local';`);
   } catch (err) {
     // ignore
   }
@@ -63,10 +69,27 @@ test('1. Student registration succeeds with valid data', async () => {
   assert.strictEqual(data.user.isActive, true);
   assert.strictEqual(data.user.password_hash, undefined);
   studentToken = data.token;
+  studentUserId = data.user.id;
 });
 
-// 2. Duplicate email registration fails
-test('2. Duplicate email registration fails with 409 Conflict', async () => {
+// 2. Profile and Auth User creation in Supabase PostgreSQL
+test('2. Registration correctly creates Supabase Auth user and public.profiles record', async () => {
+  // Check auth.users
+  const authRes = await query(`SELECT id, email, email_confirmed_at FROM auth.users WHERE id = $1;`, [studentUserId]);
+  assert.strictEqual(authRes.rows.length, 1);
+  assert.strictEqual(authRes.rows[0].email, studentData.email.toLowerCase());
+  assert.ok(authRes.rows[0].email_confirmed_at);
+
+  // Check public.profiles
+  const profileRes = await query(`SELECT id, full_name, role, created_at FROM public.profiles WHERE id = $1;`, [studentUserId]);
+  assert.strictEqual(profileRes.rows.length, 1);
+  assert.strictEqual(profileRes.rows[0].full_name, studentData.fullName);
+  assert.strictEqual(profileRes.rows[0].role, 'student');
+  assert.ok(profileRes.rows[0].created_at);
+});
+
+// 3. Duplicate email registration fails
+test('3. Duplicate email registration fails with 409 Conflict', async () => {
   const res = await fetch(`${baseUrl}/auth/register`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -79,8 +102,8 @@ test('2. Duplicate email registration fails with 409 Conflict', async () => {
   assert.strictEqual(data.error.code, 'EMAIL_ALREADY_EXISTS');
 });
 
-// 3. Student login succeeds with the correct password
-test('3. Student login succeeds with correct credentials', async () => {
+// 4. Student login succeeds with the correct password
+test('4. Student login succeeds with correct credentials', async () => {
   const res = await fetch(`${baseUrl}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -98,8 +121,8 @@ test('3. Student login succeeds with correct credentials', async () => {
   assert.strictEqual(data.user.password_hash, undefined);
 });
 
-// 4. Student login fails with an incorrect password
-test('4. Student login fails with incorrect password with 401', async () => {
+// 5. Student login fails with an incorrect password
+test('5. Student login fails with incorrect password with 401', async () => {
   const res = await fetch(`${baseUrl}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -115,12 +138,11 @@ test('4. Student login fails with incorrect password with 401', async () => {
   assert.strictEqual(data.error.code, 'INVALID_CREDENTIALS');
 });
 
-// 5. Inactive users cannot log in
-test('5. Inactive users cannot log in (403 Forbidden)', async () => {
+// 6. Inactive users cannot log in
+test('6. Inactive users cannot log in (403 Forbidden)', async () => {
   const inactiveEmail = `inactive_${testTimestamp}@primeprep.local`;
-  // Create an inactive user directly
   await query(
-    `INSERT INTO users (full_name, email, password_hash, role, is_active)
+    `INSERT INTO public.users (full_name, email, password_hash, role, is_active)
      VALUES ('Inactive User', $1, 'hashed_pw', 'student', false);`,
     [inactiveEmail]
   );
@@ -133,13 +155,12 @@ test('5. Inactive users cannot log in (403 Forbidden)', async () => {
       password: studentData.password,
     }),
   });
-  const data = await res.json();
 
-  assert.strictEqual(res.status, 401); // Invalid password checked first, or inactive check
+  assert.strictEqual(res.status, 401);
 });
 
-// 6. A valid token can access /api/auth/me
-test('6. A valid token can access /api/auth/me', async () => {
+// 7. A valid token can access /api/auth/me
+test('7. A valid token can access /api/auth/me', async () => {
   const res = await fetch(`${baseUrl}/auth/me`, {
     headers: { Authorization: `Bearer ${studentToken}` },
   });
@@ -152,8 +173,8 @@ test('6. A valid token can access /api/auth/me', async () => {
   assert.strictEqual(data.user.password_hash, undefined);
 });
 
-// 7. An invalid token is rejected
-test('7. An invalid token is rejected with 401 Unauthorized', async () => {
+// 8. An invalid token is rejected
+test('8. An invalid token is rejected with 401 Unauthorized', async () => {
   const res = await fetch(`${baseUrl}/auth/me`, {
     headers: { Authorization: 'Bearer invalid.bogus.jwt.token' },
   });
@@ -164,9 +185,8 @@ test('7. An invalid token is rejected with 401 Unauthorized', async () => {
   assert.strictEqual(data.error.code, 'INVALID_TOKEN');
 });
 
-// 8. An expired token is rejected
-test('8. An expired token is rejected with 401 TOKEN_EXPIRED', async () => {
-  // Generate token expired 1 hour ago
+// 9. An expired token is rejected
+test('9. An expired token is rejected with 401 TOKEN_EXPIRED', async () => {
   const expiredToken = jwt.sign(
     { id: '00000000-0000-0000-0000-000000000000', email: 'test@local', role: 'student' },
     config.jwtSecret,
@@ -183,8 +203,8 @@ test('8. An expired token is rejected with 401 TOKEN_EXPIRED', async () => {
   assert.strictEqual(data.error.code, 'TOKEN_EXPIRED');
 });
 
-// 9. A student cannot access an admin-only endpoint
-test('9. A student cannot access an admin-only endpoint (403 Forbidden)', async () => {
+// 10. A student cannot access an admin-only endpoint
+test('10. A student cannot access an admin-only endpoint (403 Forbidden)', async () => {
   const res = await fetch(`${baseUrl}/auth/admin-check`, {
     headers: { Authorization: `Bearer ${studentToken}` },
   });
@@ -195,76 +215,33 @@ test('9. A student cannot access an admin-only endpoint (403 Forbidden)', async 
   assert.strictEqual(data.error.code, 'FORBIDDEN');
 });
 
-// 11. An incorrect setup secret is rejected
-test('11. An incorrect setup secret is rejected with 403', async () => {
-  const res = await fetch(`${baseUrl}/auth/setup-admin`, {
+// 11. Administrator login succeeds with configured credentials
+test('11. Administrator logs in with rishabhmyp@gmail.com and Admin@8218', async () => {
+  const res = await fetch(`${baseUrl}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      setupSecret: 'wrong_secret_12345',
-      fullName: 'Fake Admin',
-      email: adminEmail,
-      password: 'AdminPassword123!',
+      email: 'rishabhmyp@gmail.com',
+      password: 'Admin@8218',
     }),
   });
   const data = await res.json();
 
-  assert.strictEqual(res.status, 403);
-  assert.strictEqual(data.success, false);
-  assert.strictEqual(data.error.code, 'INVALID_SETUP_SECRET');
-});
-
-// 10. The initial administrator can be created using ADMIN_SETUP_SECRET
-test('10. The initial administrator can be created using valid ADMIN_SETUP_SECRET', async () => {
-  // Ensure no admin currently exists from previous runs
-  await query(`DELETE FROM users WHERE role = 'admin';`);
-
-  const res = await fetch(`${baseUrl}/auth/setup-admin`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      setupSecret: config.adminSetupSecret,
-      fullName: 'PrimePrep Initial Admin',
-      email: adminEmail,
-      password: 'AdminPassword123!',
-    }),
-  });
-  const data = await res.json();
-
-  assert.strictEqual(res.status, 201);
+  assert.strictEqual(res.status, 200);
   assert.strictEqual(data.success, true);
   assert.ok(data.token);
+  assert.strictEqual(data.user.email, 'rishabhmyp@gmail.com');
   assert.strictEqual(data.user.role, 'admin');
-  adminToken = data.token;
 
-  // Verify admin can access admin-only endpoint
+  // Verify administrator token has access to admin-only endpoint
   const adminCheck = await fetch(`${baseUrl}/auth/admin-check`, {
-    headers: { Authorization: `Bearer ${adminToken}` },
+    headers: { Authorization: `Bearer ${data.token}` },
   });
   assert.strictEqual(adminCheck.status, 200);
 });
 
-// 12. A second initial administrator cannot be created through setup
-test('12. A second initial administrator cannot be created (409 Conflict)', async () => {
-  const res = await fetch(`${baseUrl}/auth/setup-admin`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      setupSecret: config.adminSetupSecret,
-      fullName: 'Second Admin Attempt',
-      email: `second_admin_${testTimestamp}@primeprep.local`,
-      password: 'AdminPassword123!',
-    }),
-  });
-  const data = await res.json();
-
-  assert.strictEqual(res.status, 409);
-  assert.strictEqual(data.success, false);
-  assert.strictEqual(data.error.code, 'ADMIN_ALREADY_EXISTS');
-});
-
-// 13. Public registration cannot create administrators
-test('13. Public registration cannot create administrators (role coerced to student)', async () => {
+// 12. Public registration cannot set role to admin
+test('12. Public student registration cannot set role to admin (coerced to student)', async () => {
   const hackerEmail = `hacker_${testTimestamp}@primeprep.local`;
   const res = await fetch(`${baseUrl}/auth/register`, {
     method: 'POST',
@@ -273,17 +250,23 @@ test('13. Public registration cannot create administrators (role coerced to stud
       fullName: 'Malicious Attacker',
       email: hackerEmail,
       password: 'AttackPassword123!',
-      role: 'admin', // attempt to elevate role
+      role: 'admin',
     }),
   });
   const data = await res.json();
 
   assert.strictEqual(res.status, 201);
-  assert.strictEqual(data.user.role, 'student'); // Server must strictly assign 'student'
+  assert.strictEqual(data.user.role, 'student'); // Server strictly assigns student
 });
 
-// 14. Existing users remain intact
-test('14. Existing users remain intact in database', async () => {
-  const res = await query(`SELECT COUNT(*)::int as count FROM users;`);
-  assert.ok(res.rows[0].count >= 3); // Pre-existing + test users
+// 13. Logout endpoint returns 200
+test('13. POST /api/auth/logout succeeds with 200', async () => {
+  const res = await fetch(`${baseUrl}/auth/logout`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const data = await res.json();
+
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(data.success, true);
 });

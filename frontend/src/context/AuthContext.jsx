@@ -3,7 +3,6 @@ import {
   getCurrentUser,
   loginUser,
   registerStudent,
-  setupInitialAdmin,
   logoutUser,
   getAuthToken,
 } from '../api/client.js';
@@ -67,18 +66,6 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const setupAdmin = async (setupSecret, fullName, email, password) => {
-    setError(null);
-    try {
-      const res = await setupInitialAdmin({ setupSecret, fullName, email, password });
-      setUser(res.user);
-      return res.user;
-    } catch (err) {
-      setError(err.message || 'Admin setup failed.');
-      throw err;
-    }
-  };
-
   const logout = async () => {
     try {
       await logoutUser();
@@ -98,7 +85,6 @@ export function AuthProvider({ children }) {
     error,
     login,
     register,
-    setupAdmin,
     logout,
     restoreSession,
   };

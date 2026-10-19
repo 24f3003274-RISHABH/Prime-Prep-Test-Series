@@ -151,24 +151,41 @@ export async function apiFetch(endpoint, options = {}) {
       errorMessage = data?.error?.message || data?.message || errorMessage;
       errorCode = data?.error?.code || data?.code || errorCode;
     } else if (typeof data === 'string' && data.trim()) {
-      errorMessage = data.trim();
+      // Safely handle HTML responses from proxies or misconfigured servers
+      if (data.includes('<html') || data.includes('<!DOCTYPE') || data.includes('<body')) {
+        const titleMatch = data.match(/<title>([^<]+)<\/title>/i);
+        const h1Match = data.match(/<h1[^>]*>([^<]+)<\/h1>/i);
+        const pageTitle = (h1Match ? h1Match[1] : (titleMatch ? titleMatch[1] : '')).trim();
+        if (response.status === 403) {
+          errorMessage = 'Access Forbidden (HTTP 403). Please verify your setup secret or authorization permissions.';
+        } else if (pageTitle) {
+          errorMessage = `${pageTitle} (HTTP ${response.status})`;
+        } else {
+          errorMessage = `Server error (HTTP ${response.status})`;
+        }
+      } else {
+        errorMessage = data.trim();
+      }
     }
 
     // Specific HTTP status classification
     if (response.status === 409) {
-      errorCode = 'EMAIL_ALREADY_EXISTS';
-      errorMessage = errorMessage || 'An account with this email already exists.';
+      errorCode = errorCode === 'API_ERROR' ? 'CONFLICT' : errorCode;
+      errorMessage = errorMessage || 'A conflicting record already exists.';
     } else if (response.status === 400) {
-      errorCode = errorCode || 'VALIDATION_ERROR';
+      errorCode = errorCode === 'API_ERROR' ? 'VALIDATION_ERROR' : errorCode;
     } else if (response.status === 401) {
-      errorCode = errorCode || 'UNAUTHORIZED';
+      errorCode = errorCode === 'API_ERROR' ? 'UNAUTHORIZED' : errorCode;
     } else if (response.status === 403) {
-      errorCode = errorCode || 'FORBIDDEN';
+      errorCode = errorCode === 'API_ERROR' ? 'FORBIDDEN' : errorCode;
+      if (!data || typeof data !== 'object') {
+        errorMessage = 'Invalid setup secret or forbidden access (HTTP 403). Please verify ADMIN_SETUP_SECRET.';
+      }
     } else if (response.status === 502 || response.status === 503) {
       errorCode = 'BACKEND_UNAVAILABLE';
       errorMessage = 'Backend service is temporarily unavailable. Please try again shortly.';
     } else if (response.status >= 500) {
-      errorCode = 'DATABASE_OR_SERVER_ERROR';
+      errorCode = errorCode === 'API_ERROR' ? 'DATABASE_OR_SERVER_ERROR' : errorCode;
       errorMessage = errorMessage || 'A database or internal server error occurred.';
     }
 
@@ -217,19 +234,6 @@ export async function loginUser(payload) {
   return res;
 }
 
-/**
- * Bootstrap initial administrator account
- */
-export async function setupInitialAdmin(payload) {
-  const res = await apiFetch('/auth/setup-admin', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-  if (res.token) {
-    setAuthToken(res.token);
-  }
-  return res;
-}
 
 /**
  * Get current authenticated user session
@@ -255,3 +259,159 @@ export async function logoutUser() {
 export async function checkAdminPrivileges() {
   return apiFetch('/auth/admin-check');
 }
+
+// ==========================================
+// Phase 5: Academic Hierarchy API Client
+// ==========================================
+
+// 1. Subjects
+export async function getSubjects(status) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  const res = await apiFetch(`/subjects${query}`);
+  return res.data || [];
+}
+
+export async function getSubject(id) {
+  const res = await apiFetch(`/subjects/${id}`);
+  return res.data;
+}
+
+export async function createSubject(payload) {
+  const res = await apiFetch('/subjects', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
+export async function updateSubject(id, payload) {
+  const res = await apiFetch(`/subjects/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
+export async function updateSubjectStatus(id, status) {
+  const res = await apiFetch(`/subjects/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+  return res.data;
+}
+
+export async function deleteSubject(id) {
+  return apiFetch(`/subjects/${id}`, { method: 'DELETE' });
+}
+
+// 2. Chapters
+export async function getChaptersBySubject(subjectId) {
+  const res = await apiFetch(`/subjects/${subjectId}/chapters`);
+  return res.data || [];
+}
+
+export async function getChapter(id) {
+  const res = await apiFetch(`/chapters/${id}`);
+  return res.data;
+}
+
+export async function createChapter(subjectId, payload) {
+  const res = await apiFetch(`/subjects/${subjectId}/chapters`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
+export async function updateChapter(id, payload) {
+  const res = await apiFetch(`/chapters/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
+export async function updateChapterStatus(id, status) {
+  const res = await apiFetch(`/chapters/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+  return res.data;
+}
+
+export async function deleteChapter(id) {
+  return apiFetch(`/chapters/${id}`, { method: 'DELETE' });
+}
+
+// 3. Tests
+export async function getTestsByChapter(chapterId, testType) {
+  const query = testType ? `?testType=${encodeURIComponent(testType)}` : '';
+  const res = await apiFetch(`/chapters/${chapterId}/tests${query}`);
+  return res.data || [];
+}
+
+export async function getTest(id) {
+  const res = await apiFetch(`/tests/${id}`);
+  return res.data;
+}
+
+export async function createTest(chapterId, payload) {
+  const res = await apiFetch(`/chapters/${chapterId}/tests`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
+export async function updateTest(id, payload) {
+  const res = await apiFetch(`/tests/${id}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
+export async function updateTestStatus(id, status) {
+  const res = await apiFetch(`/tests/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+  return res.data;
+}
+
+export async function deleteTest(id) {
+  return apiFetch(`/tests/${id}`, { method: 'DELETE' });
+}
+
+// 4. Test Series Settings & Quotas
+export async function getGlobalTestSeriesSettings() {
+  const res = await apiFetch('/admin/test-series-settings');
+  return res.data || [];
+}
+
+export async function updateGlobalTestSeriesSettings(settings) {
+  const res = await apiFetch('/admin/test-series-settings', {
+    method: 'PUT',
+    body: JSON.stringify({ settings }),
+  });
+  return res.data;
+}
+
+export async function getChapterSettings(chapterId) {
+  const res = await apiFetch(`/chapters/${chapterId}/settings`);
+  return res.data;
+}
+
+export async function updateChapterSettings(chapterId, settings) {
+  const res = await apiFetch(`/chapters/${chapterId}/settings`, {
+    method: 'PUT',
+    body: JSON.stringify({ settings }),
+  });
+  return res.data;
+}
+
+export async function getDashboardStats() {
+  const res = await apiFetch('/admin/stats');
+  return res.data;
+}
+

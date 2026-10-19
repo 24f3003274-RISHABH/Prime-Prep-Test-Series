@@ -7,7 +7,6 @@ const router = Router();
 // Public Authentication endpoints
 router.post('/register', authController.register);
 router.post('/login', authController.login);
-router.post('/setup-admin', authController.setupAdmin);
 router.post('/logout', authController.logout);
 
 // Protected Authentication endpoints
