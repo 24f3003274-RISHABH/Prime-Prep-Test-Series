@@ -1,8 +1,13 @@
 import { Router } from 'express';
 import * as adminController from '../controllers/adminController.js';
+import * as studentController from '../controllers/studentController.js';
 import { requireAuth, requireAdmin, optionalAuth } from '../middleware/auth.js';
 
 const router = Router();
+
+// Student-accessible test instructions and start endpoints
+router.get('/:testId/instructions', optionalAuth, studentController.getTestInstructions);
+router.post('/:testId/start', requireAuth, studentController.startTest);
 
 // Test-series endpoints (Part 5)
 router.get('/:id', optionalAuth, adminController.getTest);

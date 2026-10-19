@@ -192,8 +192,8 @@ export const bulkImportQuestionsAtomic = async ({
       });
     }
 
-    // 4. Update test timestamp
-    await client.query(`UPDATE tests SET updated_at = NOW() WHERE id = $1;`, [testId]);
+    // 4. Update test timestamp and ensure published status so students can take it
+    await client.query(`UPDATE tests SET updated_at = NOW(), publication_status = 'published', is_published = true, status = 'published' WHERE id = $1;`, [testId]);
 
     // 5. Audit log
     await client.query(

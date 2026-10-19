@@ -169,7 +169,9 @@ export async function apiFetch(endpoint, options = {}) {
         const h1Match = data.match(/<h1[^>]*>([^<]+)<\/h1>/i);
         const pageTitle = (h1Match ? h1Match[1] : (titleMatch ? titleMatch[1] : '')).trim();
         if (response.status === 403) {
-          errorMessage = 'Access Forbidden (HTTP 403). Please verify your setup secret or authorization permissions.';
+          errorMessage = 'Access forbidden (HTTP 403). You do not have permission to view this resource.';
+        } else if (response.status === 401) {
+          errorMessage = 'Authentication required (HTTP 401). Please sign in to continue.';
         } else if (pageTitle) {
           errorMessage = `${pageTitle} (HTTP ${response.status})`;
         } else {
@@ -188,10 +190,13 @@ export async function apiFetch(endpoint, options = {}) {
       errorCode = errorCode === 'API_ERROR' ? 'VALIDATION_ERROR' : errorCode;
     } else if (response.status === 401) {
       errorCode = errorCode === 'API_ERROR' ? 'UNAUTHORIZED' : errorCode;
+      if (!data || typeof data !== 'object') {
+        errorMessage = 'Your session has expired or authentication is required. Please sign in again.';
+      }
     } else if (response.status === 403) {
       errorCode = errorCode === 'API_ERROR' ? 'FORBIDDEN' : errorCode;
       if (!data || typeof data !== 'object') {
-        errorMessage = 'Invalid setup secret or forbidden access (HTTP 403). Please verify ADMIN_SETUP_SECRET.';
+        errorMessage = 'Access denied (HTTP 403). You do not have permission to perform this action.';
       }
     } else if (response.status === 502 || response.status === 503) {
       errorCode = 'BACKEND_UNAVAILABLE';

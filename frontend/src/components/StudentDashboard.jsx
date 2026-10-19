@@ -515,15 +515,28 @@ export default function StudentDashboard() {
                             </div>
                           )}
 
-                          <button
-                            type="button"
-                            className="btn btn-primary"
-                            style={{ width: '100%', fontSize: '0.9rem', fontWeight: 700 }}
-                            onClick={() => handleOpenInstructions(t.id)}
-                            disabled={!hasQuestions}
-                          >
-                            {t.latest_attempt_status === 'in_progress' ? 'Resume Test &rarr;' : hasAttempted ? 'Take / Retake Test &rarr;' : 'Open Test Instructions &rarr;'}
-                          </button>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              style={{ width: '100%', fontSize: '0.9rem', fontWeight: 700 }}
+                              onClick={() => handleOpenInstructions(t.id)}
+                              disabled={!hasQuestions}
+                            >
+                              {t.latest_attempt_status === 'in_progress' ? 'Resume Test &rarr;' : hasAttempted ? 'Take / Retake Test &rarr;' : 'Open Test Instructions &rarr;'}
+                            </button>
+
+                            {hasAttempted && t.latest_attempt_status === 'submitted' && t.latest_attempt_id && (
+                              <button
+                                type="button"
+                                className="btn btn-outline"
+                                style={{ width: '100%', fontSize: '0.8rem', padding: '0.35rem' }}
+                                onClick={() => handleSubmitSuccess(t.latest_attempt_id)}
+                              >
+                                View Last Score & Solutions &rarr;
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
