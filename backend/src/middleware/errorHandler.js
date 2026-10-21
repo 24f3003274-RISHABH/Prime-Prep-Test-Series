@@ -44,6 +44,7 @@ export const errorHandler = (err, req, res, next) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   return res.status(statusCode).json({
     success: false,
+    message,
     error: {
       code: errorCode,
       message,

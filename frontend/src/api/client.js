@@ -525,4 +525,48 @@ export async function getStudentAttemptsList() {
   return res.data || [];
 }
 
+// 7. Public Catalogue & Homepage APIs
+export async function getPublicStats() {
+  const res = await apiFetch('/public/stats');
+  return res.data;
+}
+
+export async function getPublicSubjects() {
+  const res = await apiFetch('/public/subjects');
+  return res.data || [];
+}
+
+export async function getPublicChapters(subjectId) {
+  const res = await apiFetch(`/public/subjects/${subjectId}/chapters`);
+  return res.data || [];
+}
+
+export async function getPublicTests(params = {}) {
+  const search = new URLSearchParams();
+  if (params.subjectId) search.append('subjectId', params.subjectId);
+  if (params.chapterId) search.append('chapterId', params.chapterId);
+  if (params.category && params.category !== 'ALL') search.append('category', params.category);
+  if (params.accessType && params.accessType !== 'ALL') search.append('accessType', params.accessType);
+  if (params.search && params.search.trim()) search.append('search', params.search.trim());
+  if (params.page) search.append('page', params.page);
+  if (params.limit) search.append('limit', params.limit);
+
+  const query = search.toString() ? `?${search.toString()}` : '';
+  const res = await apiFetch(`/public/tests${query}`);
+  return {
+    tests: res.data || [],
+    pagination: res.pagination || { page: 1, limit: 20, total: 0, totalPages: 1 },
+  };
+}
+
+export async function getPublicTestDetails(testId) {
+  const res = await apiFetch(`/public/tests/${testId}`);
+  return res.data;
+}
+
+export async function getFeaturedFreeTest() {
+  const res = await apiFetch('/public/tests/featured-free');
+  return res.data;
+}
+
 

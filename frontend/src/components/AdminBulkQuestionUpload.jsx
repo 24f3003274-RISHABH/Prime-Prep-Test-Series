@@ -172,7 +172,7 @@ export default function AdminBulkQuestionUpload() {
         testType: testCategory,
         testNumber: newTestNumber ? parseInt(newTestNumber, 10) : undefined,
         durationMinutes: parseInt(newTestDuration, 10) || 30,
-        publicationStatus: 'published',
+        publicationStatus: 'draft',
       });
       setShowCreateTest(false);
       setNewTestTitle('');

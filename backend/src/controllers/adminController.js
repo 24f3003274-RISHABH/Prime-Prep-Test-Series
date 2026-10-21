@@ -85,6 +85,16 @@ export const createSubject = async (req, res, next) => {
       });
     }
 
+    if (paperCode && typeof paperCode === 'string' && paperCode.trim().length > 0) {
+      const existingCode = await adminRepo.getSubjectByCode(paperCode);
+      if (existingCode) {
+        return res.status(409).json({
+          success: false,
+          message: `A subject with code "${paperCode.trim()}" already exists (${existingCode.name}).`,
+        });
+      }
+    }
+
     const validStatus = ['draft', 'published', 'archived'];
     const finalStatus = publicationStatus && validStatus.includes(publicationStatus)
       ? publicationStatus
@@ -146,7 +156,20 @@ export const updateSubject = async (req, res, next) => {
     }
 
     if (description !== undefined) updatePayload.description = description;
-    if (paperCode !== undefined) updatePayload.paper_code = paperCode;
+    if (paperCode !== undefined) {
+      const cleanCode = typeof paperCode === 'string' ? paperCode.trim() : '';
+      if (cleanCode) {
+        const existingCode = await adminRepo.getSubjectByCode(cleanCode);
+        if (existingCode && existingCode.id !== id) {
+          return res.status(409).json({
+            success: false,
+            message: `A subject with code "${cleanCode}" already exists (${existingCode.name}).`,
+          });
+        }
+      }
+      updatePayload.paper_code = cleanCode;
+      updatePayload.code = cleanCode;
+    }
     if (displayOrder !== undefined) updatePayload.display_order = parseInt(displayOrder, 10);
 
     if (publicationStatus !== undefined) {

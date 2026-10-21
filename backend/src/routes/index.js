@@ -6,8 +6,13 @@ import subjectRoutes from './subjectRoutes.js';
 import chapterRoutes from './chapterRoutes.js';
 import testRoutes from './testRoutes.js';
 import studentRoutes from './studentRoutes.js';
+import publicRoutes from './publicRoutes.js';
 
 const router = Router();
+
+// Mount public test series & catalogue routes at /api/public and /api/catalogue
+router.use('/public', publicRoutes);
+router.use('/catalogue', publicRoutes);
 
 // Mount health check at /api/health
 router.use('/', healthRoutes);

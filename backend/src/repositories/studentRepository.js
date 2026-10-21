@@ -136,9 +136,23 @@ export const getTestInstructions = async (testId, studentId) => {
     GROUP BY t.id, s.id, s.name, s.code, s.paper_code, c.id, c.name, c.title;
   `;
   const res = await pool.query(query, [testId]);
-  if (res.rowCount === 0) return null;
-
   const test = res.rows[0];
+  const isPublished = test.publication_status === 'published' || test.is_published === true;
+  if (!isPublished) {
+    if (studentId) {
+      const userRes = await pool.query(`SELECT role FROM users WHERE id = $1;`, [studentId]);
+      if (userRes.rows[0]?.role !== 'admin') {
+        const err = new Error('Test not found or not published.');
+        err.statusCode = 404;
+        throw err;
+      }
+    } else {
+      const err = new Error('Test not found or not published.');
+      err.statusCode = 404;
+      throw err;
+    }
+  }
+
   const qCount = parseInt(test.question_count, 10) || 0;
   const posMarks = parseFloat(test.positive_marks) || 4.0;
   const negMarks = parseFloat(test.negative_marks) || 1.0;
@@ -217,6 +231,27 @@ export const startTestAttempt = async (testId, studentId) => {
       const err = new Error('This test is not published yet.');
       err.statusCode = 403;
       throw err;
+    }
+
+    if (test.access_type === 'paid') {
+      const userRes = await client.query(`SELECT role FROM users WHERE id = $1;`, [studentId]);
+      const userRole = userRes.rows[0]?.role;
+      if (userRole !== 'admin') {
+        const entRes = await client.query(
+          `SELECT id FROM test_entitlements 
+           WHERE student_id = $1 AND test_id = $2
+             AND revoked_at IS NULL
+             AND (expires_at IS NULL OR expires_at > NOW())
+           LIMIT 1;`,
+          [studentId, testId]
+        );
+        if (entRes.rowCount === 0) {
+          const err = new Error('This is a paid test. An active subscription or course enrollment is required to attempt this test.');
+          err.statusCode = 403;
+          err.code = 'PAID_TEST_RESTRICTED';
+          throw err;
+        }
+      }
     }
 
     const qCount = parseInt(test.question_count, 10);
@@ -324,6 +359,7 @@ export const startTestAttempt = async (testId, studentId) => {
 
     return {
       attemptId,
+      totalQuestions: qCount,
       test: {
         id: test.id,
         title: test.title,
@@ -341,11 +377,17 @@ export const startTestAttempt = async (testId, studentId) => {
       questions: questionsRes.rows.map((q) => ({
         id: q.id,
         displayOrder: q.display_order,
+        display_order: q.display_order,
         questionText: q.question_text,
+        question_text: q.question_text,
         optionA: q.option_a,
         optionB: q.option_b,
         optionC: q.option_c,
         optionD: q.option_d,
+        option_a: q.option_a,
+        option_b: q.option_b,
+        option_c: q.option_c,
+        option_d: q.option_d,
         positiveMarks: q.positive_marks,
         negativeMarks: q.negative_marks,
         sectionName: q.section_name,

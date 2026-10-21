@@ -81,6 +81,8 @@ export const bulkImportQuestionsAtomic = async ({
   adminUserId,
   overridePositiveMarks,
   overrideNegativeMarks,
+  filename,
+  rejectedCount = 0,
 }) => {
   const pool = getPool();
   if (!pool) {
@@ -196,14 +198,17 @@ export const bulkImportQuestionsAtomic = async ({
     await client.query(`UPDATE tests SET updated_at = NOW(), publication_status = 'published', is_published = true, status = 'published' WHERE id = $1;`, [testId]);
 
     // 5. Audit log
-    await client.query(
+    const auditRes = await client.query(
       `INSERT INTO admin_audit_logs (admin_user_id, action, entity_type, entity_id, details)
-       VALUES ($1, 'BULK_QUESTION_IMPORT', 'test', $2, $3::jsonb);`,
+       VALUES ($1, 'BULK_QUESTION_IMPORT', 'test', $2, $3::jsonb)
+       RETURNING id, created_at;`,
       [
         adminUserId || null,
         testId,
         JSON.stringify({
+          filename: filename || 'spreadsheet.xlsx',
           importedCount: insertedQuestions.length,
+          rejectedCount: parseInt(rejectedCount, 10) || 0,
           startOrder: orderRes.rows[0].max_order + 1,
           endOrder: currentOrder,
           subjectName: test.subject_name,
@@ -211,9 +216,12 @@ export const bulkImportQuestionsAtomic = async ({
           testType: test.test_type,
           testNumber: test.test_number,
           title: test.title,
+          importStatus: 'completed',
         }),
       ]
     );
+
+    const importRecord = auditRes.rows[0];
 
     await client.query('COMMIT');
 
@@ -225,8 +233,13 @@ export const bulkImportQuestionsAtomic = async ({
 
     return {
       success: true,
+      importId: importRecord?.id,
+      importTimestamp: importRecord?.created_at,
       importedCount: insertedQuestions.length,
+      rejectedCount: parseInt(rejectedCount, 10) || 0,
       totalQuestionsInTest: finalCountRes.rows[0].count,
+      firstOrder: orderRes.rows[0].max_order + 1,
+      lastOrder: currentOrder,
       test: {
         id: test.id,
         title: test.title,
@@ -235,8 +248,6 @@ export const bulkImportQuestionsAtomic = async ({
         subjectName: test.subject_name,
         chapterName: test.chapter_name,
       },
-      firstOrder: orderRes.rows[0].max_order + 1,
-      lastOrder: currentOrder,
     };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -597,4 +608,44 @@ export const reorderTestQuestions = async (testId, orderedQuestionIds = []) => {
   } finally {
     client.release();
   }
+};
+
+/**
+ * Retrieve bulk question import history recorded in admin audit logs.
+ */
+export const listImportHistory = async (limit = 25) => {
+  const pool = getPool();
+  if (!pool) return [];
+  const res = await pool.query(
+    `SELECT a.id, a.admin_user_id, a.entity_id as test_id, a.details, a.created_at,
+            u.full_name as admin_name, u.email as admin_email,
+            t.title as test_title, t.test_type, t.test_number,
+            s.name as subject_name, c.name as chapter_name
+     FROM admin_audit_logs a
+     LEFT JOIN users u ON a.admin_user_id = u.id
+     LEFT JOIN tests t ON a.entity_id = t.id
+     LEFT JOIN subjects s ON t.subject_id = s.id
+     LEFT JOIN chapters c ON t.chapter_id = c.id
+     WHERE a.action = 'BULK_QUESTION_IMPORT'
+     ORDER BY a.created_at DESC
+     LIMIT $1;`,
+    [limit]
+  );
+  return res.rows.map((row) => ({
+    id: row.id,
+    adminId: row.admin_user_id,
+    adminName: row.admin_name || 'System Administrator',
+    adminEmail: row.admin_email || 'admin@primeprep.local',
+    testId: row.test_id,
+    testTitle: row.test_title || row.details?.title || 'Practice Test',
+    testType: row.test_type || row.details?.testType || 'sectional',
+    testNumber: row.test_number || row.details?.testNumber || 1,
+    subjectName: row.subject_name || row.details?.subjectName || 'General',
+    chapterName: row.chapter_name || row.details?.chapterName || 'General',
+    filename: row.details?.filename || 'spreadsheet.xlsx',
+    importedCount: row.details?.importedCount || 0,
+    rejectedCount: row.details?.rejectedCount || 0,
+    status: row.details?.importStatus || 'completed',
+    timestamp: row.created_at,
+  }));
 };

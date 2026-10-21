@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import express from 'express';
+import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import backendApp from './backend/src/app.js';
 import { ensureAdminAccount } from './backend/src/repositories/userRepository.js';
@@ -23,6 +24,10 @@ async function startServer() {
   // Vite development middleware for the React frontend
   if (process.env.NODE_ENV === 'production') {
     app.use(express.static('dist'));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      res.sendFile(path.resolve('dist', 'index.html'));
+    });
   } else {
     const vite = await createViteServer({
       server: { middlewareMode: true },

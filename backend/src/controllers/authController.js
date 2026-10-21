@@ -26,6 +26,10 @@ export const register = async (req, res, next) => {
       message: 'Student account created successfully.',
       token: result.token,
       user: result.user,
+      data: {
+        token: result.token,
+        user: result.user,
+      },
     });
   } catch (error) {
     next(error);
@@ -54,6 +58,10 @@ export const login = async (req, res, next) => {
       message: 'Login successful.',
       token: result.token,
       user: result.user,
+      data: {
+        token: result.token,
+        user: result.user,
+      },
     });
   } catch (error) {
     next(error);

@@ -24,7 +24,18 @@ export const recordAuditLog = async ({ adminUserId, action, entityType, entityId
 // DASHBOARD STATS
 // ==========================================
 export const getDashboardStats = async () => {
-  const [subjectsRes, chaptersRes, testsRes, questionsRes] = await Promise.all([
+  const [
+    subjectsRes,
+    chaptersRes,
+    testsRes,
+    questionsRes,
+    studentsRes,
+    attemptsRes,
+    recentRegsRes,
+    recentAttemptsRes,
+    recentImportsRes,
+    testsNeedingQuestionsRes,
+  ] = await Promise.all([
     query(`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE publication_status = 'published')::int as active FROM subjects;`),
     query(`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE publication_status = 'published')::int as active FROM chapters;`),
     query(`SELECT 
@@ -37,9 +48,42 @@ export const getDashboardStats = async () => {
              COUNT(*) FILTER (WHERE test_type = 'pyq')::int as pyq
            FROM tests;`),
     query(`SELECT COUNT(*)::int as total FROM questions;`),
+    query(`SELECT COUNT(*)::int as total, COUNT(*) FILTER (WHERE is_active = true)::int as active FROM users WHERE role = 'student';`),
+    query(`SELECT 
+             COUNT(*)::int as total,
+             COUNT(*) FILTER (WHERE status = 'in_progress')::int as in_progress,
+             COUNT(*) FILTER (WHERE status = 'submitted')::int as submitted,
+             COUNT(*) FILTER (WHERE status = 'expired')::int as expired
+           FROM attempts;`),
+    query(`SELECT id, full_name, email, is_active, created_at FROM users WHERE role = 'student' ORDER BY created_at DESC LIMIT 5;`),
+    query(`SELECT a.id, a.user_id, a.status, a.score, a.total_questions, a.attempted_questions, a.started_at, a.submitted_at,
+                  u.full_name as student_name, u.email as student_email,
+                  t.title as test_title, t.test_type
+           FROM attempts a
+           JOIN users u ON a.user_id = u.id
+           JOIN tests t ON a.test_id = t.id
+           ORDER BY a.started_at DESC
+           LIMIT 5;`),
+    query(`SELECT id, admin_user_id, action, entity_id, details, created_at
+           FROM admin_audit_logs
+           WHERE action = 'BULK_QUESTION_IMPORT'
+           ORDER BY created_at DESC
+           LIMIT 5;`),
+    query(`SELECT t.id, t.title, t.test_type, t.test_number, t.publication_status,
+                  s.name as subject_name, c.name as chapter_name
+           FROM tests t
+           JOIN subjects s ON t.subject_id = s.id
+           LEFT JOIN chapters c ON t.chapter_id = c.id
+           WHERE NOT EXISTS (SELECT 1 FROM test_questions tq WHERE tq.test_id = t.id)
+           ORDER BY s.name, t.title
+           LIMIT 10;`),
   ]);
 
   return {
+    students: {
+      total: studentsRes.rows[0]?.total || 0,
+      active: studentsRes.rows[0]?.active || 0,
+    },
     subjects: {
       total: subjectsRes.rows[0]?.total || 0,
       active: subjectsRes.rows[0]?.active || 0,
@@ -62,6 +106,16 @@ export const getDashboardStats = async () => {
     questions: {
       total: questionsRes.rows[0]?.total || 0,
     },
+    attempts: {
+      total: attemptsRes.rows[0]?.total || 0,
+      inProgress: attemptsRes.rows[0]?.in_progress || 0,
+      submitted: attemptsRes.rows[0]?.submitted || 0,
+      expired: attemptsRes.rows[0]?.expired || 0,
+    },
+    recentRegistrations: recentRegsRes.rows,
+    recentAttempts: recentAttemptsRes.rows,
+    recentImports: recentImportsRes.rows,
+    testsNeedingQuestions: testsNeedingQuestionsRes.rows,
   };
 };
 
@@ -125,6 +179,15 @@ export const getSubjectByName = async (name) => {
   const res = await query(
     `SELECT id, name, slug FROM subjects WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) LIMIT 1;`,
     [name.trim()]
+  );
+  return res.rows[0] || null;
+};
+
+export const getSubjectByCode = async (code) => {
+  if (!code || typeof code !== 'string' || !code.trim()) return null;
+  const res = await query(
+    `SELECT id, name, code, paper_code FROM subjects WHERE (LOWER(TRIM(code)) = LOWER(TRIM($1)) OR LOWER(TRIM(paper_code)) = LOWER(TRIM($1))) LIMIT 1;`,
+    [code.trim()]
   );
   return res.rows[0] || null;
 };
