@@ -1,4 +1,5 @@
 import * as studentRepo from '../repositories/studentRepository.js';
+import * as userRepo from '../repositories/userRepository.js';
 
 export const getPublishedSubjects = async (req, res, next) => {
   try {
@@ -185,3 +186,39 @@ export const getStudentAttempts = async (req, res, next) => {
     next(err);
   }
 };
+
+export const getProfile = async (req, res, next) => {
+  try {
+    const studentId = req.user?.id;
+    const profile = await userRepo.getProfileWithStats(studentId);
+
+    res.json({
+      success: true,
+      data: profile,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const updateProfile = async (req, res, next) => {
+  try {
+    const studentId = req.user?.id;
+    const { fullName, targetSubjectCode, phone } = req.body;
+
+    const updated = await userRepo.updateProfile(studentId, {
+      fullName: fullName?.trim() || undefined,
+      targetSubjectCode: targetSubjectCode?.trim() || undefined,
+      phone: phone?.trim() || undefined,
+    });
+
+    res.json({
+      success: true,
+      message: 'Profile updated successfully.',
+      data: updated,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+

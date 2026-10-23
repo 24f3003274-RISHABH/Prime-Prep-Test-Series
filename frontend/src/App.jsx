@@ -23,6 +23,9 @@ function parseUrlPath() {
   if (path === '/test-series' || path === '/catalogue') {
     return { view: 'catalogue', testId: null };
   }
+  if (path === '/subjects') return { view: 'subjects', testId: null };
+  if (path === '/my-results' || path === '/results') return { view: 'results', testId: null };
+  if (path === '/profile') return { view: 'profile', testId: null };
   if (path === '/login') return { view: 'login', testId: null };
   if (path === '/register') return { view: 'register', testId: null };
   if (path === '/dashboard') return { view: 'dashboard', testId: null };
@@ -35,6 +38,9 @@ function parseUrlPath() {
 function updateBrowserUrl(view, testId = null) {
   let targetPath = '/';
   if (view === 'catalogue') targetPath = '/test-series';
+  else if (view === 'subjects') targetPath = '/subjects';
+  else if (view === 'results') targetPath = '/my-results';
+  else if (view === 'profile') targetPath = '/profile';
   else if (view === 'test-details' && testId) targetPath = `/test-series/${testId}`;
   else if (view === 'login') targetPath = '/login';
   else if (view === 'register') targetPath = '/register';
@@ -145,11 +151,11 @@ function AppContent() {
           currentView={currentView}
           onNavigate={(target) => {
             if (target === 'subjects') {
-              navigateTo('home');
-              setTimeout(() => {
-                const el = document.getElementById('subjects-section');
-                if (el) el.scrollIntoView({ behavior: 'smooth' });
-              }, 100);
+              if (isAuthenticated) {
+                navigateTo('subjects');
+              } else {
+                navigateTo('catalogue');
+              }
             } else {
               navigateTo(target);
             }
@@ -168,7 +174,13 @@ function AppContent() {
             {currentView === 'home' && (
               <PublicHomepage
                 onNavigateToCatalogue={(filters) => navigateTo('catalogue', null, filters || {})}
-                onSelectSubject={(subjectId) => navigateTo('catalogue', null, { subjectId })}
+                onSelectSubject={(subjectId) => {
+                  if (isAuthenticated) {
+                    navigateTo('subjects', null, { subjectId });
+                  } else {
+                    navigateTo('catalogue', null, { subjectId });
+                  }
+                }}
                 onSelectCategory={(category) => navigateTo('catalogue', null, { category })}
                 onOpenTestDetails={handleOpenTestDetails}
               />
@@ -209,14 +221,29 @@ function AppContent() {
               <StudentTestResult
                 attemptId={resultAttemptId}
                 onBackToDashboard={() => navigateTo('dashboard')}
-                onViewHistory={() => navigateTo('dashboard')}
+                onViewHistory={() => navigateTo('results')}
               />
             )}
 
-            {/* VIEW 6: Authenticated Student Dashboard */}
-            {currentView === 'dashboard' && (
+            {/* VIEW 6: PrimePrep Student Portal (Dashboard, Subjects, My Results, Profile) */}
+            {(currentView === 'dashboard' || currentView === 'subjects' || currentView === 'results' || currentView === 'profile') && (
               isAuthenticated ? (
-                <StudentDashboard />
+                <StudentDashboard
+                  initialSection={
+                    currentView === 'results' ? 'results' :
+                    currentView === 'profile' ? 'profile' :
+                    currentView === 'subjects' ? 'subjects' : 'dashboard'
+                  }
+                  initialSubjectId={catalogueFilters.subjectId}
+                />
+              ) : currentView === 'subjects' ? (
+                <PublicCatalogue
+                  initialSubjectId={catalogueFilters.subjectId}
+                  initialCategory={catalogueFilters.category}
+                  initialAccessType={catalogueFilters.accessType}
+                  onSelectTest={handleOpenTestDetails}
+                  onNavigateHome={() => navigateTo('home')}
+                />
               ) : (
                 <div className="card" style={{ maxWidth: '480px', margin: '2rem auto' }}>
                   <h3 className="card-title">Authentication Required</h3>

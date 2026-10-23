@@ -525,6 +525,20 @@ export async function getStudentAttemptsList() {
   return res.data || [];
 }
 
+export async function getStudentProfile() {
+  const res = await apiFetch('/student/profile');
+  return res.data;
+}
+
+export async function updateStudentProfile(payload) {
+  const res = await apiFetch('/student/profile', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return res.data;
+}
+
+
 // 7. Public Catalogue & Homepage APIs
 export async function getPublicStats() {
   const res = await apiFetch('/public/stats');

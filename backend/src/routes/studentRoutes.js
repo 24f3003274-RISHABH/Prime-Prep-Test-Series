@@ -17,5 +17,7 @@ router.put('/attempts/:attemptId/responses/:questionId', requireAuth, studentCon
 router.post('/attempts/:attemptId/submit', requireAuth, studentController.submitAttempt);
 router.get('/attempts/:attemptId/result', requireAuth, studentController.getAttemptResult);
 router.get('/attempts', requireAuth, studentController.getStudentAttempts);
+router.get('/profile', requireAuth, studentController.getProfile);
+router.put('/profile', requireAuth, studentController.updateProfile);
 
 export default router;

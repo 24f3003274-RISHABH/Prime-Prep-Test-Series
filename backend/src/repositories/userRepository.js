@@ -68,6 +68,76 @@ export const getOrRecoverProfile = async (userId, fallbackName = 'PrimePrep Stud
 };
 
 /**
+ * Updates a student profile in public.profiles and syncs full_name to public.users.
+ */
+export const updateProfile = async (userId, { fullName, targetSubjectCode, phone }) => {
+  const pool = getPool();
+  const res = await pool.query(
+    `UPDATE public.profiles
+     SET full_name = COALESCE($2, full_name),
+         target_subject_code = COALESCE($3, target_subject_code),
+         phone = COALESCE($4, phone),
+         updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, full_name, role, target_subject_code, phone, avatar_url, created_at, updated_at;`,
+    [userId, fullName || null, targetSubjectCode || null, phone || null]
+  );
+  if (fullName) {
+    await pool.query(`UPDATE public.users SET full_name = $2, updated_at = NOW() WHERE id = $1;`, [userId, fullName]);
+  }
+  return res.rows[0];
+};
+
+/**
+ * Loads a student profile along with real aggregated performance metrics.
+ */
+export const getProfileWithStats = async (userId) => {
+  const pool = getPool();
+  const profile = await getOrRecoverProfile(userId);
+  const userRes = await pool.query(`SELECT email, created_at FROM public.users WHERE id = $1 LIMIT 1;`, [userId]);
+
+  const statsRes = await pool.query(
+    `SELECT COUNT(*)::int AS total_attempts,
+            COUNT(CASE WHEN status = 'submitted' THEN 1 END)::int AS completed_attempts,
+            COUNT(CASE WHEN status = 'in_progress' THEN 1 END)::int AS in_progress_attempts,
+            COALESCE(AVG(CASE WHEN status = 'submitted' THEN score END), 0)::numeric(5,1) AS average_score,
+            COALESCE(MAX(CASE WHEN status = 'submitted' THEN score END), 0)::numeric(5,1) AS highest_score,
+            COALESCE(SUM(CASE WHEN status = 'submitted' THEN correct_answers END), 0)::int AS total_correct,
+            COALESCE(SUM(CASE WHEN status = 'submitted' THEN attempted_questions END), 0)::int AS total_attempted
+     FROM attempts
+     WHERE user_id = $1;`,
+    [userId]
+  );
+
+  const stats = statsRes.rows[0];
+  const overallAccuracy = stats.total_attempted > 0
+    ? ((stats.total_correct / stats.total_attempted) * 100).toFixed(1)
+    : '0.0';
+
+  return {
+    id: profile.id,
+    fullName: profile.full_name,
+    email: userRes.rows[0]?.email || null,
+    role: profile.role,
+    targetSubjectCode: profile.target_subject_code,
+    phone: profile.phone,
+    avatarUrl: profile.avatar_url,
+    createdAt: profile.created_at,
+    updatedAt: profile.updated_at,
+    stats: {
+      totalAttempts: stats.total_attempts,
+      completedAttempts: stats.completed_attempts,
+      inProgressAttempts: stats.in_progress_attempts,
+      averageScore: parseFloat(stats.average_score),
+      highestScore: parseFloat(stats.highest_score),
+      totalCorrect: stats.total_correct,
+      totalAttempted: stats.total_attempted,
+      overallAccuracy: parseFloat(overallAccuracy),
+    },
+  };
+};
+
+/**
  * Creates a student account across Supabase auth.users, auth.identities, public.profiles, and public.users.
  * Guarantees transactional consistency, populates standard GoTrue instance_id and identity records,
  * and ensures the user appears in Supabase Dashboard -> Authentication -> Users.
