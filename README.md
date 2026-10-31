@@ -1,4 +1,4 @@
-# PrimePrep: CUET PG Test Preparation Platform
+# PrimePrep: CUET PG Test Preparation Platform .....
 
 PrimePrep is a professional, database-driven test preparation platform tailored for CUET PG entrance examination aspirants.
 
