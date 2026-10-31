@@ -1,185 +1,28 @@
 import { getPool } from '../config/db.js';
-import { checkTestAccess, getGlobalFreeTestIds } from '../services/accessService.js';
-
 
 /**
- * List all published subjects with test counts and student progress.
+ * List all published subjects with chapter and published test counts.
  */
-export const listPublishedSubjects = async (studentId = null) => {
+export const listPublishedSubjects = async () => {
   const pool = getPool();
-  let studentAttemptJoin = '';
-  let studentMetrics = `
-    0::int AS completed_tests,
-    NULL::numeric AS best_score
-  `;
-  const params = [];
-
-  if (studentId) {
-    params.push(studentId);
-    studentAttemptJoin = `
-      LEFT JOIN LATERAL (
-        SELECT COUNT(DISTINCT a.id)::int AS completed_count,
-               MAX(a.score) AS top_score
-        FROM attempts a
-        JOIN tests at ON a.test_id = at.id
-        WHERE at.subject_id = s.id AND a.user_id = $1 AND a.status = 'submitted'
-      ) att_stats ON true
-    `;
-    studentMetrics = `
-      COALESCE(att_stats.completed_count, 0)::int AS completed_tests,
-      att_stats.top_score AS best_score
-    `;
-  }
-
   const query = `
     SELECT s.id, s.name, s.slug, s.description, s.code, s.paper_code,
            s.display_order, s.created_at,
-           COUNT(DISTINCT t.id)::int AS total_tests,
-           COUNT(DISTINCT t.id)::int AS test_count,
-           COUNT(DISTINCT CASE WHEN t.test_type = 'sectional' THEN t.id END)::int AS sectional_count,
-           COUNT(DISTINCT CASE WHEN t.test_type = 'full_length' THEN t.id END)::int AS full_length_count,
-           COUNT(DISTINCT CASE WHEN t.test_type = 'pyq' THEN t.id END)::int AS pyq_count,
-           0::int AS chapter_count,
-           ${studentMetrics}
+           COUNT(DISTINCT c.id)::int AS chapter_count,
+           COUNT(DISTINCT t.id)::int AS test_count
     FROM subjects s
+    LEFT JOIN chapters c ON s.id = c.subject_id AND (c.publication_status = 'published' OR c.is_active = true)
     LEFT JOIN tests t ON s.id = t.subject_id AND (t.publication_status = 'published' OR t.is_published = true)
-    ${studentAttemptJoin}
     WHERE s.publication_status = 'published' OR s.is_active = true
-    GROUP BY s.id ${studentId ? ', att_stats.completed_count, att_stats.top_score' : ''}
+    GROUP BY s.id
     ORDER BY s.display_order ASC, s.name ASC;
   `;
-  const res = await pool.query(query, params);
+  const res = await pool.query(query);
   return res.rows;
 };
 
 /**
- * Get statistics for the 3 test categories of a specific subject:
- * Sectional Tests, Full-Length Tests, and Previous Year Question (PYQ) Tests.
- */
-export const getSubjectCategoryStats = async (subjectId, studentId = null) => {
-  const pool = getPool();
-  const params = [subjectId];
-  let studentJoin = '';
-  let studentSelect = `
-    0::int AS completed_tests,
-    NULL::numeric AS best_score,
-    NULL::numeric AS average_score
-  `;
-
-  if (studentId) {
-    params.push(studentId);
-    studentJoin = `LEFT JOIN attempts a ON t.id = a.test_id AND a.user_id = $2 AND a.status = 'submitted'`;
-    studentSelect = `
-      COUNT(DISTINCT a.id)::int AS completed_tests,
-      MAX(a.score) AS best_score,
-      COALESCE(AVG(a.score), NULL)::numeric(5,1) AS average_score
-    `;
-  }
-
-  const query = `
-    SELECT t.test_type,
-           COUNT(DISTINCT t.id)::int AS available_tests,
-           ${studentSelect}
-    FROM tests t
-    ${studentJoin}
-    WHERE t.subject_id = $1 AND (t.publication_status = 'published' OR t.is_published = true)
-    GROUP BY t.test_type;
-  `;
-  const res = await pool.query(query, params);
-
-  const categories = {
-    sectional: {
-      testType: 'sectional',
-      title: 'Sectional Tests',
-      description: 'Topic-specific tests to build conceptual clarity and accuracy.',
-      availableTests: 0,
-      completedTests: 0,
-      bestScore: null,
-      averageScore: null,
-    },
-    full_length: {
-      testType: 'full_length',
-      title: 'Full-Length Mock Tests',
-      description: 'Comprehensive examinations simulating actual CUET PG timing and marks.',
-      availableTests: 0,
-      completedTests: 0,
-      bestScore: null,
-      averageScore: null,
-    },
-    pyq: {
-      testType: 'pyq',
-      title: 'Previous Year Question (PYQ) Tests',
-      description: 'Official past year question papers to practice authentic exam patterns.',
-      availableTests: 0,
-      completedTests: 0,
-      bestScore: null,
-      averageScore: null,
-    },
-  };
-
-  for (const row of res.rows) {
-    if (categories[row.test_type]) {
-      categories[row.test_type].availableTests = parseInt(row.available_tests, 10);
-      categories[row.test_type].completedTests = parseInt(row.completed_tests, 10);
-      categories[row.test_type].bestScore = row.best_score !== null ? parseFloat(row.best_score) : null;
-      categories[row.test_type].averageScore = row.average_score !== null ? parseFloat(row.average_score) : null;
-    }
-  }
-
-  return Object.values(categories);
-};
-
-/**
- * Get subject-specific test attempt history for a student.
- */
-export const getSubjectTestHistory = async (subjectId, studentId) => {
-  const pool = getPool();
-  const query = `
-    SELECT a.id, a.test_id, a.started_at, a.submitted_at, a.status,
-           a.total_questions, a.attempted_questions, a.correct_answers,
-           a.incorrect_answers, a.score, a.time_taken_seconds,
-           t.title AS test_title, t.test_type, t.test_number, t.duration_minutes,
-           t.positive_marks, t.negative_marks,
-           s.name AS subject_name, s.paper_code AS subject_paper_code
-    FROM attempts a
-    JOIN tests t ON a.test_id = t.id
-    JOIN subjects s ON t.subject_id = s.id
-    WHERE a.user_id = $1 AND t.subject_id = $2
-    ORDER BY a.started_at DESC;
-  `;
-  const res = await pool.query(query, [studentId, subjectId]);
-  return res.rows.map((a) => {
-    const pos = parseFloat(a.positive_marks) || 4.0;
-    const maxMarks = a.total_questions * pos;
-    const accuracy = a.attempted_questions > 0
-      ? ((a.correct_answers / a.attempted_questions) * 100).toFixed(1)
-      : '0.0';
-
-    return {
-      id: a.id,
-      testId: a.test_id,
-      testTitle: a.test_title,
-      subjectName: a.subject_name,
-      paperCode: a.subject_paper_code,
-      testType: a.test_type,
-      testNumber: a.test_number,
-      status: a.status,
-      startedAt: a.started_at,
-      submittedAt: a.submitted_at,
-      totalQuestions: a.total_questions,
-      attemptedQuestions: a.attempted_questions,
-      correctAnswers: a.correct_answers,
-      incorrectAnswers: a.incorrect_answers,
-      score: a.score !== null ? parseFloat(a.score) : null,
-      maxPossibleMarks: maxMarks,
-      accuracyPercentage: parseFloat(accuracy),
-      timeTakenSeconds: a.time_taken_seconds || 0,
-    };
-  });
-};
-
-/**
- * List published chapters for a subject (backward compatibility).
+ * List published chapters for a subject.
  */
 export const listPublishedChapters = async (subjectId) => {
   const pool = getPool();
@@ -270,40 +113,8 @@ export const listPublishedTests = async ({ subjectId, chapterId, testType, stude
   `;
 
   const res = await pool.query(query, params);
-
-  // Enrich tests with subject entitlement and free test status
-  const freeMap = await getGlobalFreeTestIds(pool);
-  const userEntitlements = new Set();
-  let isAdmin = false;
-  if (studentId) {
-    const userRoleRes = await pool.query('SELECT role FROM users WHERE id = $1', [studentId]);
-    if (userRoleRes.rows[0]?.role === 'admin') {
-      isAdmin = true;
-    } else {
-      const entRes = await pool.query(
-        `SELECT subject_id FROM subject_entitlements 
-         WHERE user_id = $1 AND status = 'active' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())`,
-        [studentId]
-      );
-      entRes.rows.forEach((r) => userEntitlements.add(r.subject_id));
-    }
-  }
-
-  return res.rows.map((test) => {
-    const isGloballyFree = freeMap.sectional === test.id || freeMap.pyq === test.id;
-    const isFree = isGloballyFree || test.access_type === 'free';
-    const isPurchased = userEntitlements.has(test.subject_id);
-    const isUnlocked = isFree || isAdmin || isPurchased;
-    return {
-      ...test,
-      is_free: isFree,
-      is_unlocked: isUnlocked,
-      is_purchased: isPurchased,
-      access_status: isFree ? 'free' : (isUnlocked ? 'unlocked' : 'locked'),
-    };
-  });
+  return res.rows;
 };
-
 
 /**
  * Get comprehensive test instructions and metadata.
@@ -374,13 +185,6 @@ export const getTestInstructions = async (testId, studentId) => {
     }
   }
 
-  let access = null;
-  try {
-    access = await checkTestAccess(studentId, testId, pool);
-  } catch (accErr) {
-    console.warn('[getTestInstructions access check warning]:', accErr.message);
-  }
-
   return {
     ...test,
     total_marks: totalMarks,
@@ -388,13 +192,8 @@ export const getTestInstructions = async (testId, studentId) => {
     negative_marks: negMarks,
     active_attempt: activeAttempt,
     previous_attempts_count: previousAttemptsCount,
-    access,
-    is_unlocked: access ? access.canAttempt : test.access_type === 'free',
-    is_free: access ? access.isFree : test.access_type === 'free',
-    access_status: access ? access.status : test.access_type,
   };
 };
-
 
 /**
  * Start or resume a test attempt.
@@ -434,21 +233,25 @@ export const startTestAttempt = async (testId, studentId) => {
       throw err;
     }
 
-    // Access check: Free global test vs Subject-Wise Entitlement
-    const access = await checkTestAccess(studentId, testId, client);
-    if (!access.canAttempt) {
-      const err = new Error(`This is a paid test. Unlock the complete ${access.subjectName} Test Series to attempt this test.`);
-      err.statusCode = 403;
-      err.code = 'PAID_TEST_RESTRICTED';
-      err.details = {
-        subjectId: access.subjectId,
-        subjectName: access.subjectName,
-        pricePaise: access.pricePaise,
-        priceInr: Math.round(access.pricePaise / 100),
-        testId: access.testId,
-        title: access.title,
-      };
-      throw err;
+    if (test.access_type === 'paid') {
+      const userRes = await client.query(`SELECT role FROM users WHERE id = $1;`, [studentId]);
+      const userRole = userRes.rows[0]?.role;
+      if (userRole !== 'admin') {
+        const entRes = await client.query(
+          `SELECT id FROM test_entitlements 
+           WHERE student_id = $1 AND test_id = $2
+             AND revoked_at IS NULL
+             AND (expires_at IS NULL OR expires_at > NOW())
+           LIMIT 1;`,
+          [studentId, testId]
+        );
+        if (entRes.rowCount === 0) {
+          const err = new Error('This is a paid test. An active subscription or course enrollment is required to attempt this test.');
+          err.statusCode = 403;
+          err.code = 'PAID_TEST_RESTRICTED';
+          throw err;
+        }
+      }
     }
 
     const qCount = parseInt(test.question_count, 10);

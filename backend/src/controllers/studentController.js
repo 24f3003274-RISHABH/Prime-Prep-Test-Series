@@ -3,68 +3,10 @@ import * as userRepo from '../repositories/userRepository.js';
 
 export const getPublishedSubjects = async (req, res, next) => {
   try {
-    const studentId = req.user?.id || null;
-    const subjects = await studentRepo.listPublishedSubjects(studentId);
+    const subjects = await studentRepo.listPublishedSubjects();
     res.json({
       success: true,
       data: subjects,
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const getSubjectCategories = async (req, res, next) => {
-  try {
-    const { subjectId } = req.params;
-    const studentId = req.user?.id || null;
-    const categories = await studentRepo.getSubjectCategoryStats(subjectId, studentId);
-    res.json({
-      success: true,
-      data: categories,
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const getSubjectTests = async (req, res, next) => {
-  try {
-    const { subjectId } = req.params;
-    const { category } = req.query;
-    const studentId = req.user?.id || null;
-
-    const tests = await studentRepo.listPublishedTests({
-      subjectId,
-      testType: category,
-      studentId,
-    });
-
-    res.json({
-      success: true,
-      data: tests,
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const getSubjectHistory = async (req, res, next) => {
-  try {
-    const { subjectId } = req.params;
-    const studentId = req.user?.id;
-
-    if (!studentId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Authentication required to view subject attempt history.',
-      });
-    }
-
-    const history = await studentRepo.getSubjectTestHistory(subjectId, studentId);
-    res.json({
-      success: true,
-      data: history,
     });
   } catch (err) {
     next(err);

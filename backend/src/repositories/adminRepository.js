@@ -459,42 +459,6 @@ export const deleteChapter = async (id) => {
 // ==========================================
 // TESTS REPOSITORY
 // ==========================================
-export const listTestsBySubject = async (subjectId, filters = {}) => {
-  const params = [subjectId];
-  let whereExtra = '';
-
-  if (filters.testType) {
-    params.push(filters.testType.toLowerCase());
-    whereExtra += ` AND t.test_type = $${params.length}`;
-  }
-
-  if (filters.publishedOnly) {
-    whereExtra += ` AND (t.publication_status = 'published' OR t.is_published = true) AND (s.publication_status = 'published' OR s.is_active = true)`;
-  } else if (filters.isPublished !== undefined) {
-    params.push(Boolean(filters.isPublished));
-    whereExtra += ` AND (t.publication_status = 'published' OR t.is_published = true) = $${params.length}`;
-  }
-
-  const res = await query(
-    `SELECT 
-       t.id, t.chapter_id, t.subject_id, t.title, t.slug, t.description, t.test_type, t.test_number,
-       t.duration_minutes, t.positive_marks, t.negative_marks, t.access_type, t.max_attempts,
-       COALESCE(t.publication_status, CASE WHEN t.is_published THEN 'published' ELSE 'draft' END) AS publication_status,
-       t.is_published, t.display_order, t.instructions, t.created_at, t.updated_at,
-       s.name as subject_name,
-       COUNT(tq.id)::int AS question_count,
-       (SELECT COUNT(*)::int FROM attempts a WHERE a.test_id = t.id) AS attempt_count
-     FROM tests t
-     JOIN subjects s ON t.subject_id = s.id
-     LEFT JOIN test_questions tq ON t.id = tq.test_id
-     WHERE t.subject_id = $1 ${whereExtra}
-     GROUP BY t.id, s.id, s.name
-     ORDER BY t.test_type ASC, COALESCE(t.test_number, t.display_order) ASC, t.created_at ASC;`,
-    params
-  );
-  return res.rows;
-};
-
 export const listTestsByChapter = async (chapterId, filters = {}) => {
   const params = [chapterId];
   let whereExtra = '';
@@ -536,7 +500,7 @@ export const getTestById = async (id, filters = {}) => {
   let whereExtra = '';
 
   if (filters.publishedOnly) {
-    whereExtra = `AND (t.publication_status = 'published' OR t.is_published = true) AND (s.publication_status = 'published' OR s.is_active = true)`;
+    whereExtra = `AND t.publication_status = 'published' AND c.publication_status = 'published' AND s.publication_status = 'published'`;
   }
 
   const res = await query(
@@ -546,13 +510,13 @@ export const getTestById = async (id, filters = {}) => {
        t.access_type, t.max_attempts,
        COALESCE(t.publication_status, CASE WHEN t.is_published THEN 'published' ELSE 'draft' END) AS publication_status,
        t.is_published, t.display_order, t.created_at, t.updated_at,
-       c.name as chapter_name, c.subject_id as chapter_subject_id,
+       c.name as chapter_name, c.subject_id,
        s.name as subject_name,
        COUNT(tq.id)::int AS question_count,
        (SELECT COUNT(*)::int FROM attempts a WHERE a.test_id = t.id) AS attempt_count
      FROM tests t
-     JOIN subjects s ON t.subject_id = s.id
-     LEFT JOIN chapters c ON t.chapter_id = c.id
+     JOIN chapters c ON t.chapter_id = c.id
+     JOIN subjects s ON c.subject_id = s.id
      LEFT JOIN test_questions tq ON t.id = tq.test_id
      WHERE t.id = $1 ${whereExtra}
      GROUP BY t.id, c.name, c.subject_id, s.name
@@ -575,6 +539,7 @@ export const getTestByNumberInChapter = async (chapterId, testType, testNumber) 
 
 export const createTest = async (data) => {
   const {
+    chapterId,
     title,
     description,
     instructions,
@@ -590,18 +555,13 @@ export const createTest = async (data) => {
     displayOrder = 0,
   } = data;
 
-  let subjectId = data.subjectId;
-  const chapterId = data.chapterId || null;
-
-  if (!subjectId && chapterId) {
-    const chapterRes = await query(`SELECT subject_id FROM chapters WHERE id = $1;`, [chapterId]);
-    subjectId = chapterRes.rows[0]?.subject_id;
-  }
-
+  // Retrieve parent chapter to obtain subject_id
+  const chapterRes = await query(`SELECT subject_id FROM chapters WHERE id = $1;`, [chapterId]);
+  const subjectId = chapterRes.rows[0]?.subject_id;
   if (!subjectId) {
-    const error = new Error('Parent subject ID is required to create a test.');
+    const error = new Error('Parent chapter does not exist or has no subject.');
     error.statusCode = 404;
-    error.code = 'SUBJECT_NOT_FOUND';
+    error.code = 'CHAPTER_NOT_FOUND';
     throw error;
   }
 
@@ -609,12 +569,20 @@ export const createTest = async (data) => {
   let finalTestNumber;
   if (testNumber !== undefined && testNumber !== null && !isNaN(parseInt(testNumber, 10))) {
     finalTestNumber = parseInt(testNumber, 10);
+    // Pre-check for duplicate test_number
+    const existingNum = await getTestByNumberInChapter(chapterId, testType, finalTestNumber);
+    if (existingNum) {
+      const error = new Error(`Test #${finalTestNumber} already exists in this chapter for category "${testType}".`);
+      error.statusCode = 409;
+      error.code = 'DUPLICATE_TEST_NUMBER';
+      throw error;
+    }
   } else {
     const maxNumRes = await query(
       `SELECT COALESCE(MAX(test_number), 0)::int + 1 AS next_num 
        FROM tests 
-       WHERE subject_id = $1 AND test_type = $2;`,
-      [subjectId, testType.toLowerCase()]
+       WHERE chapter_id = $1 AND test_type = $2;`,
+      [chapterId, testType.toLowerCase()]
     );
     finalTestNumber = maxNumRes.rows[0]?.next_num || 1;
   }

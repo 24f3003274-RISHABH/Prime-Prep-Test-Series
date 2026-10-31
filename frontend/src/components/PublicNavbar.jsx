@@ -47,22 +47,12 @@ export default function PublicNavbar({ currentView, onNavigate }) {
 
             <button
               type="button"
-              className={`nav-btn ${currentView === 'purchases' ? 'active' : ''}`}
-              onClick={() => onNavigate('purchases')}
-              style={{ background: 'none', border: 'none', fontSize: '0.9rem', fontWeight: currentView === 'purchases' ? 700 : 500, cursor: 'pointer', color: currentView === 'purchases' ? 'var(--color-primary)' : 'var(--color-text)' }}
-            >
-              My Purchases
-            </button>
-
-            <button
-              type="button"
               className={`nav-btn ${currentView === 'profile' ? 'active' : ''}`}
               onClick={() => onNavigate('profile')}
               style={{ background: 'none', border: 'none', fontSize: '0.9rem', fontWeight: currentView === 'profile' ? 700 : 500, cursor: 'pointer', color: currentView === 'profile' ? 'var(--color-primary)' : 'var(--color-text)' }}
             >
               Profile
             </button>
-
 
             {isAdmin && (
               <button

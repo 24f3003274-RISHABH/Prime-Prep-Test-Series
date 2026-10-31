@@ -10,20 +10,10 @@ import StudentExamInterface from './components/StudentExamInterface.jsx';
 import StudentTestResult from './components/StudentTestResult.jsx';
 import LoginForm from './components/LoginForm.jsx';
 import RegisterForm from './components/RegisterForm.jsx';
-import SubjectPurchasePage from './components/SubjectPurchasePage.jsx';
 import { getHealthStatus, startStudentTest } from './api/client.js';
 
 function parseUrlPath() {
   const path = window.location.pathname;
-  if (path.startsWith('/subjects/') && path.endsWith('/purchase')) {
-    const parts = path.split('/');
-    const subjectId = parts[2];
-    const urlParams = new URLSearchParams(window.location.search);
-    const returnTestId = urlParams.get('returnTestId');
-    if (subjectId) {
-      return { view: 'purchase', subjectId, testId: returnTestId };
-    }
-  }
   if (path.startsWith('/test-series/')) {
     const testId = path.replace('/test-series/', '').split('/')[0];
     if (testId) {
@@ -36,7 +26,6 @@ function parseUrlPath() {
   if (path === '/subjects') return { view: 'subjects', testId: null };
   if (path === '/my-results' || path === '/results') return { view: 'results', testId: null };
   if (path === '/profile') return { view: 'profile', testId: null };
-  if (path === '/purchases' || path === '/my-purchases') return { view: 'purchases', testId: null };
   if (path === '/login') return { view: 'login', testId: null };
   if (path === '/register') return { view: 'register', testId: null };
   if (path === '/dashboard') return { view: 'dashboard', testId: null };
@@ -46,17 +35,13 @@ function parseUrlPath() {
   return { view: 'home', testId: null };
 }
 
-function updateBrowserUrl(view, testId = null, extraParams = {}) {
+function updateBrowserUrl(view, testId = null) {
   let targetPath = '/';
   if (view === 'catalogue') targetPath = '/test-series';
   else if (view === 'subjects') targetPath = '/subjects';
   else if (view === 'results') targetPath = '/my-results';
   else if (view === 'profile') targetPath = '/profile';
-  else if (view === 'purchases') targetPath = '/purchases';
   else if (view === 'test-details' && testId) targetPath = `/test-series/${testId}`;
-  else if (view === 'purchase' && extraParams.subjectId) {
-    targetPath = `/subjects/${extraParams.subjectId}/purchase${testId ? `?returnTestId=${testId}` : ''}`;
-  }
   else if (view === 'login') targetPath = '/login';
   else if (view === 'register') targetPath = '/register';
   else if (view === 'dashboard') targetPath = '/dashboard';
@@ -64,7 +49,7 @@ function updateBrowserUrl(view, testId = null, extraParams = {}) {
   else if (view === 'system') targetPath = '/system';
 
   if (window.location.pathname !== targetPath) {
-    window.history.pushState({ view, testId, extraParams }, '', targetPath);
+    window.history.pushState({ view, testId }, '', targetPath);
   }
 }
 
@@ -72,10 +57,8 @@ function AppContent() {
   const { user, isAuthenticated, isAdmin, loading } = useAuth();
 
   // Navigation State
-  const initialParsed = parseUrlPath();
-  const [currentView, setCurrentView] = useState(() => initialParsed.view);
-  const [activeTestId, setActiveTestId] = useState(() => initialParsed.testId);
-  const [purchaseSubjectId, setPurchaseSubjectId] = useState(() => initialParsed.subjectId || null);
+  const [currentView, setCurrentView] = useState(() => parseUrlPath().view);
+  const [activeTestId, setActiveTestId] = useState(() => parseUrlPath().testId);
   const [catalogueFilters, setCatalogueFilters] = useState({ subjectId: '', category: 'ALL', accessType: 'ALL' });
   const [returnToTestId, setReturnToTestId] = useState(null);
 
@@ -94,7 +77,6 @@ function AppContent() {
       const parsed = parseUrlPath();
       setCurrentView(parsed.view);
       setActiveTestId(parsed.testId);
-      if (parsed.subjectId) setPurchaseSubjectId(parsed.subjectId);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -103,9 +85,6 @@ function AppContent() {
   const navigateTo = (view, testId = null, extraParams = {}) => {
     setCurrentView(view);
     setActiveTestId(testId);
-    if (extraParams.subjectId) {
-      setPurchaseSubjectId(extraParams.subjectId);
-    }
     if (extraParams.subjectId || extraParams.category || extraParams.accessType) {
       setCatalogueFilters({
         subjectId: extraParams.subjectId || '',
@@ -113,10 +92,9 @@ function AppContent() {
         accessType: extraParams.accessType || 'ALL',
       });
     }
-    updateBrowserUrl(view, testId, extraParams);
+    updateBrowserUrl(view, testId);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-
 
   const handleOpenTestDetails = (testId) => {
     navigateTo('test-details', testId);
@@ -216,7 +194,6 @@ function AppContent() {
                 initialAccessType={catalogueFilters.accessType}
                 onSelectTest={handleOpenTestDetails}
                 onNavigateHome={() => navigateTo('home')}
-                onNavigateToPurchase={(subjectId, testId) => navigateTo('purchase', testId, { subjectId })}
               />
             )}
 
@@ -227,28 +204,6 @@ function AppContent() {
                 onBackToCatalogue={() => navigateTo('catalogue')}
                 onRequireAuth={handleRequireAuth}
                 onStartExamSession={handleStartExamSession}
-                onNavigateToPurchase={(subjectId, testId) => navigateTo('purchase', testId, { subjectId })}
-              />
-            )}
-
-            {/* VIEW: Subject-Wise Test Series Purchase */}
-            {currentView === 'purchase' && purchaseSubjectId && (
-              <SubjectPurchasePage
-                subjectId={purchaseSubjectId}
-                returnTestId={activeTestId}
-                onBack={() => {
-                  if (isAuthenticated) {
-                    navigateTo('subjects', null, { subjectId: purchaseSubjectId });
-                  } else {
-                    navigateTo('catalogue', null, { subjectId: purchaseSubjectId });
-                  }
-                }}
-                onNavigateToTest={(testId) => {
-                  handleOpenTestDetails(testId);
-                }}
-                onRequireAuth={(targetId) => {
-                  handleRequireAuth(targetId);
-                }}
               />
             )}
 
@@ -270,13 +225,12 @@ function AppContent() {
               />
             )}
 
-            {/* VIEW 6: PrimePrep Student Portal (Dashboard, Subjects, My Results, Purchases, Profile) */}
-            {(currentView === 'dashboard' || currentView === 'subjects' || currentView === 'results' || currentView === 'purchases' || currentView === 'profile') && (
+            {/* VIEW 6: PrimePrep Student Portal (Dashboard, Subjects, My Results, Profile) */}
+            {(currentView === 'dashboard' || currentView === 'subjects' || currentView === 'results' || currentView === 'profile') && (
               isAuthenticated ? (
                 <StudentDashboard
                   initialSection={
                     currentView === 'results' ? 'results' :
-                    currentView === 'purchases' ? 'purchases' :
                     currentView === 'profile' ? 'profile' :
                     currentView === 'subjects' ? 'subjects' : 'dashboard'
                   }
@@ -289,10 +243,8 @@ function AppContent() {
                   initialAccessType={catalogueFilters.accessType}
                   onSelectTest={handleOpenTestDetails}
                   onNavigateHome={() => navigateTo('home')}
-                  onNavigateToPurchase={(subjectId, testId) => navigateTo('purchase', testId, { subjectId })}
                 />
               ) : (
-
                 <div className="card" style={{ maxWidth: '480px', margin: '2rem auto' }}>
                   <h3 className="card-title">Authentication Required</h3>
                   <p className="card-subtitle" style={{ marginBottom: '1.25rem' }}>

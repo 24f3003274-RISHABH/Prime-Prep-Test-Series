@@ -31,7 +31,6 @@
     "motion": "^12.23.24",
     "multer": "^2.4.0",
     "pg": "^8.23.1",
-    "razorpay": "^2.9.8",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-router-dom": "^7.18.4",

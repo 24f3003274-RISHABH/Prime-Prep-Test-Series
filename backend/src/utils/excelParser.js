@@ -220,16 +220,17 @@ export const parseQuestionsSpreadsheet = (bufferOrText, destination = null) => {
         }
       }
 
-      // If destination explicitly has chapterName (legacy tests), validate match; otherwise ignore gracefully
-      if (rawChapter && destination && destination.chapterName) {
+      if (rawChapter) {
         const destChapterName = (destination.chapterName || '').toLowerCase().trim();
         const destChapterTitle = (destination.chapterTitle || '').toLowerCase().trim();
         const chapLower = rawChapter.toLowerCase().trim();
 
+        // Check exact or substring name match
         const matchesName =
           (destChapterName && (destChapterName.includes(chapLower) || chapLower.includes(destChapterName))) ||
           (destChapterTitle && (destChapterTitle.includes(chapLower) || chapLower.includes(destChapterTitle)));
 
+        // Check chapter number match (e.g. "Chapter 1" or "1" matching chapterOrder = 1)
         const chapDigits = chapLower.match(/\d+/);
         const destOrderDigits = destination.chapterOrder !== undefined && destination.chapterOrder !== null
           ? String(destination.chapterOrder)

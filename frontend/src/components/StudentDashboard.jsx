@@ -2,9 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
 import {
   getStudentSubjects,
-  getSubjectCategoryStats,
-  getSubjectTests,
-  getSubjectTestHistory,
+  getStudentChapters,
+  getStudentTests,
   getStudentAttemptsList,
   getStudentProfile,
 } from '../api/client.js';
@@ -13,430 +12,913 @@ import StudentExamInterface from './StudentExamInterface.jsx';
 import StudentTestResult from './StudentTestResult.jsx';
 import StudentAttemptHistory from './StudentAttemptHistory.jsx';
 import StudentProfile from './StudentProfile.jsx';
-import StudentPurchaseHistory from './StudentPurchaseHistory.jsx';
-import SubjectPurchasePage from './SubjectPurchasePage.jsx';
-
-
-// Subtle, professional academic icons for the 7 CUET PG disciplines
-const SUBJECT_ICONS = {
-  'Political Science': '🏛️',
-  'Philosophy': '💭',
-  'Psychology': '🧠',
-  'History': '📜',
-  'Economics': '📈',
-  'Geography': '🌍',
-  'Disaster Management': '🛡️',
-};
-
-const DEFAULT_SUBJECT_NAMES = [
-  'Political Science',
-  'Philosophy',
-  'Psychology',
-  'History',
-  'Economics',
-  'Geography',
-  'Disaster Management',
-];
 
 export default function StudentDashboard({ initialSection = 'dashboard', initialSubjectId = null }) {
   const { user, logout } = useAuth();
 
-  // Navigation tabs: 'dashboard' | 'subjects' | 'results' | 'profile'
+  // Primary navigation: 'dashboard' | 'subjects' | 'results' | 'profile'
+  // Sub-views for examination flow: 'instructions' | 'exam' | 'result'
   const [activeSection, setActiveSection] = useState(initialSection);
 
-  // Level 1, 2, 3 Hierarchy State
-  // Level 1: selectedSubject === null
-  // Level 2: selectedSubject !== null && selectedCategory === null
-  // Level 3: selectedSubject !== null && selectedCategory !== null ('sectional' | 'full_length' | 'pyq')
-  const [selectedSubject, setSelectedSubject] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState(null);
+  // Sync if initialSection prop changes
+  useEffect(() => {
+    if (initialSection) {
+      setActiveSection(initialSection);
+    }
+  }, [initialSection]);
 
-  // Data states
+  // Overall subjects catalogue
   const [subjects, setSubjects] = useState([]);
   const [loadingSubjects, setLoadingSubjects] = useState(true);
   const [subjectsError, setSubjectsError] = useState(null);
 
-  // Level 2 Category stats for selected subject
-  const [categoryStats, setCategoryStats] = useState([]);
-  const [loadingCategoryStats, setLoadingCategoryStats] = useState(false);
+  // Selected subject & category hierarchy
+  // Category is one of: 'sectional' | 'full_length' | 'pyq'
+  const [selectedSubject, setSelectedSubject] = useState(null);
+  const [activeCategory, setActiveCategory] = useState('sectional');
+  const [selectedChapterId, setSelectedChapterId] = useState('ALL');
 
-  // Subject-specific attempt history
-  const [subjectHistory, setSubjectHistory] = useState([]);
-  const [loadingSubjectHistory, setLoadingSubjectHistory] = useState(false);
-
-  // Level 3 Tests for selected subject & category
+  // Chapters & Tests for selected subject
+  const [chapters, setChapters] = useState([]);
   const [tests, setTests] = useState([]);
   const [loadingTests, setLoadingTests] = useState(false);
   const [testsError, setTestsError] = useState(null);
 
-  // Overall student stats & attempts
-  const [allAttempts, setAllAttempts] = useState([]);
+  // Candidate Attempts & Stats overview
+  const [attempts, setAttempts] = useState([]);
   const [profileStats, setProfileStats] = useState(null);
+  const [loadingDashboard, setLoadingDashboard] = useState(true);
 
-  // Active Exam & Result inspection states (Level 4 & 5)
+  // Active Exam / Result inspection state
   const [activeTestId, setActiveTestId] = useState(null);
   const [activeAttemptId, setActiveAttemptId] = useState(null);
   const [initialExamData, setInitialExamData] = useState(null);
   const [activeResultAttemptId, setActiveResultAttemptId] = useState(null);
-  const [isExamActive, setIsExamActive] = useState(false);
-  const [isResultActive, setIsResultActive] = useState(false);
-  const [isInstructionsActive, setIsInstructionsActive] = useState(false);
 
-  // Subject Series Purchase State
-  const [purchaseSubjectId, setPurchaseSubjectId] = useState(null);
-  const [purchaseReturnTestId, setPurchaseReturnTestId] = useState(null);
-
-  const handleNavigateToPurchase = (subjectId, returnTestId = null) => {
-    setPurchaseSubjectId(subjectId);
-    setPurchaseReturnTestId(returnTestId);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-
+  // 1. Load subjects and student attempts on mount
   useEffect(() => {
-    loadSubjects();
-    loadOverallData();
+    loadInitialData();
   }, []);
 
-  const loadSubjects = async () => {
+  const loadInitialData = async () => {
     setLoadingSubjects(true);
-    setSubjectsError(null);
+    setLoadingDashboard(true);
     try {
-      const data = await getStudentSubjects();
-      // Ensure the 7 CUET PG subjects are prioritized in order
-      const sorted = (data || []).sort((a, b) => (a.display_order || 99) - (b.display_order || 99));
-      setSubjects(sorted);
-
-      if (initialSubjectId) {
-        const found = sorted.find((s) => s.id === initialSubjectId);
-        if (found) {
-          handleSelectSubject(found);
-        }
-      }
-    } catch (err) {
-      setSubjectsError(err.message || 'Failed to load CUET PG subjects.');
-    } finally {
-      setLoadingSubjects(false);
-    }
-  };
-
-  const loadOverallData = async () => {
-    try {
-      const [attemptsData, profileData] = await Promise.all([
+      const [subjectsData, attemptsData, profileData] = await Promise.all([
+        getStudentSubjects().catch(() => []),
         getStudentAttemptsList().catch(() => []),
         getStudentProfile().catch(() => null),
       ]);
-      setAllAttempts(attemptsData || []);
+
+      setSubjects(subjectsData || []);
+      setAttempts(attemptsData || []);
       setProfileStats(profileData || null);
-    } catch (err) {
-      console.error('Error loading overall metrics:', err);
-    }
-  };
 
-  // Level 1 -> Level 2: When student clicks a Subject
-  const handleSelectSubject = async (subject) => {
-    setSelectedSubject(subject);
-    setSelectedCategory(null);
-    setTests([]);
-    setLoadingCategoryStats(true);
-    setLoadingSubjectHistory(true);
-
-    try {
-      const [catData, histData] = await Promise.all([
-        getSubjectCategoryStats(subject.id).catch(() => []),
-        getSubjectTestHistory(subject.id).catch(() => []),
-      ]);
-      setCategoryStats(catData || []);
-      setSubjectHistory(histData || []);
+      // Default selected subject
+      if (subjectsData && subjectsData.length > 0) {
+        if (initialSubjectId) {
+          const matched = subjectsData.find((s) => s.id === initialSubjectId);
+          setSelectedSubject(matched || subjectsData[0]);
+        } else {
+          // If user has a target subject preference, default to that subject
+          const targetCode = profileData?.targetSubjectCode;
+          const targetSubj = targetCode
+            ? subjectsData.find((s) => s.paper_code === targetCode || s.code === targetCode)
+            : null;
+          setSelectedSubject(targetSubj || subjectsData[0]);
+        }
+      }
     } catch (err) {
-      console.error('Failed to load subject category stats:', err);
+      setSubjectsError(err.message || 'Failed to load initial data.');
     } finally {
-      setLoadingCategoryStats(false);
-      setLoadingSubjectHistory(false);
+      setLoadingSubjects(false);
+      setLoadingDashboard(false);
     }
   };
 
-  // Level 2 -> Level 3: When student clicks a Category
-  const handleSelectCategory = async (catType) => {
-    setSelectedCategory(catType);
-    if (!selectedSubject) return;
+  // 2. When selectedSubject or activeCategory changes, load tests and chapters
+  useEffect(() => {
+    if (selectedSubject) {
+      loadSubjectDetails(selectedSubject.id);
+    }
+  }, [selectedSubject]);
 
+  useEffect(() => {
+    if (selectedSubject) {
+      loadCategoryTests(selectedSubject.id, activeCategory, selectedChapterId);
+    }
+  }, [selectedSubject, activeCategory, selectedChapterId]);
+
+  const loadSubjectDetails = async (subjId) => {
+    try {
+      const chapData = await getStudentChapters(subjId);
+      setChapters(chapData || []);
+      setSelectedChapterId('ALL');
+    } catch (err) {
+      console.error('Failed to load chapters:', err);
+    }
+  };
+
+  const loadCategoryTests = async (subjId, category, chapId) => {
     setLoadingTests(true);
     setTestsError(null);
     try {
-      const testList = await getSubjectTests(selectedSubject.id, catType);
-      setTests(testList || []);
+      const testsData = await getStudentTests({
+        subjectId: subjId,
+        chapterId: chapId !== 'ALL' ? chapId : undefined,
+        category: category,
+      });
+      setTests(testsData || []);
     } catch (err) {
-      setTestsError(err.message || 'Failed to load test series.');
+      setTestsError(err.message || 'Failed to load tests.');
       setTests([]);
     } finally {
       setLoadingTests(false);
     }
   };
 
-  // Level 3 -> Level 4: Start Test Flow
-  const handleOpenInstructions = (testId) => {
+  // Navigation handlers
+  const handleSelectSubject = (subj, category = 'sectional') => {
+    setSelectedSubject(subj);
+    setActiveCategory(category);
+    setSelectedChapterId('ALL');
+    setActiveSection('subjects');
+  };
+
+  const handleOpenTestInstructions = (testId) => {
     setActiveTestId(testId);
-    setIsInstructionsActive(true);
+    setActiveSection('instructions');
   };
 
   const handleStartExam = (sessionData) => {
     setActiveAttemptId(sessionData.attemptId);
     setInitialExamData(sessionData);
-    setIsInstructionsActive(false);
-    setIsExamActive(true);
+    setActiveSection('exam');
   };
 
   const handleSubmitSuccess = (attemptId) => {
     setActiveResultAttemptId(attemptId);
-    setIsExamActive(false);
-    setIsResultActive(true);
-    // Refresh student metrics
-    loadSubjects();
-    loadOverallData();
-    if (selectedSubject) {
-      getSubjectCategoryStats(selectedSubject.id).then(setCategoryStats);
-      getSubjectTestHistory(selectedSubject.id).then(setSubjectHistory);
-    }
+    setActiveSection('result');
+    // Refresh attempts in background
+    getStudentAttemptsList().then((data) => setAttempts(data || []));
   };
 
-  const handleSelectHistoryAttempt = (attemptId, inProgress, testId) => {
-    if (inProgress) {
+  const handleSelectHistoryAttempt = (attemptId, isInProgress, testId) => {
+    if (isInProgress) {
       setActiveAttemptId(attemptId);
       setInitialExamData(null);
-      setIsExamActive(true);
+      setActiveSection('exam');
     } else {
       setActiveResultAttemptId(attemptId);
-      setIsResultActive(true);
+      setActiveSection('result');
     }
   };
 
-  // Check for in-progress attempt
-  const activeSession = allAttempts.find((a) => a.status === 'in_progress');
+  // Find any active in-progress attempt for candidate
+  const inProgressAttempt = attempts.find((a) => a.status === 'in_progress');
 
-  // Filter 7 predefined subjects
-  const sevenSubjects = subjects.filter((s) => DEFAULT_SUBJECT_NAMES.includes(s.name));
-  const displaySubjects = sevenSubjects.length > 0 ? sevenSubjects : subjects.slice(0, 7);
-
-  // =========================================================================
-  // VIEW: LEVEL 4 - EXAM INTERFACE
-  // =========================================================================
-  if (isExamActive && activeAttemptId) {
-    return (
-      <StudentExamInterface
-        attemptId={activeAttemptId}
-        initialData={initialExamData}
-        onSubmitSuccess={handleSubmitSuccess}
-      />
-    );
-  }
-
-  // =========================================================================
-  // VIEW: LEVEL 5 - RESULT & ANALYSIS
-  // =========================================================================
-  if (isResultActive && activeResultAttemptId) {
-    return (
-      <StudentTestResult
-        attemptId={activeResultAttemptId}
-        onBackToDashboard={() => {
-          setIsResultActive(false);
-          setActiveResultAttemptId(null);
-        }}
-        onViewHistory={() => {
-          setIsResultActive(false);
-          setActiveResultAttemptId(null);
-          setActiveSection('results');
-        }}
-      />
-    );
-  }
-
-  // =========================================================================
-  // VIEW: SUBJECT PURCHASE PAGE (Direct access & locked test redirect)
-  // =========================================================================
-  if (purchaseSubjectId) {
-    return (
-      <SubjectPurchasePage
-        subjectId={purchaseSubjectId}
-        returnTestId={purchaseReturnTestId}
-        onBack={() => {
-          setPurchaseSubjectId(null);
-          setPurchaseReturnTestId(null);
-        }}
-        onNavigateToTest={(testId) => {
-          setPurchaseSubjectId(null);
-          setPurchaseReturnTestId(null);
-          handleOpenInstructions(testId);
-        }}
-        onRequireAuth={() => {}}
-      />
-    );
-  }
-
-  // =========================================================================
-  // VIEW: TEST INSTRUCTIONS (Acceptance Dialog)
-  // =========================================================================
-  if (isInstructionsActive && activeTestId) {
-    return (
-      <StudentTestInstructions
-        testId={activeTestId}
-        onStartExam={handleStartExam}
-        onNavigateToPurchase={(subjId) => handleNavigateToPurchase(subjId, activeTestId)}
-        onBack={() => {
-          setIsInstructionsActive(false);
-          setActiveTestId(null);
-        }}
-      />
-    );
-  }
-
+  // Compute quick performance stats
+  const completedAttempts = attempts.filter((a) => a.status === 'submitted');
+  const avgScore = completedAttempts.length > 0
+    ? (completedAttempts.reduce((acc, curr) => acc + (parseFloat(curr.score) || 0), 0) / completedAttempts.length).toFixed(1)
+    : '0.0';
+  const avgAccuracy = completedAttempts.length > 0
+    ? (completedAttempts.reduce((acc, curr) => acc + (parseFloat(curr.accuracyPercentage) || 0), 0) / completedAttempts.length).toFixed(1)
+    : '0.0';
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', paddingBottom: '3rem' }}>
-      {/* PrimePrep Header Sub-Navigation */}
-      <div
-        className="card"
-        style={{
-          padding: '0.85rem 1.25rem',
-          marginBottom: '1.5rem',
-          backgroundColor: '#ffffff',
-          border: '1px solid var(--color-border)',
-          borderRadius: '10px',
-        }}
-      >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className={`btn ${activeSection === 'dashboard' ? 'btn-primary' : 'btn-outline'}`}
-              style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}
-              onClick={() => {
-                setActiveSection('dashboard');
-                setSelectedSubject(null);
-                setSelectedCategory(null);
-              }}
-            >
-              📊 Dashboard
-            </button>
-
-            <button
-              type="button"
-              className={`btn ${activeSection === 'subjects' ? 'btn-primary' : 'btn-outline'}`}
-              style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}
-              onClick={() => {
-                setActiveSection('subjects');
-                setSelectedSubject(null);
-                setSelectedCategory(null);
-              }}
-            >
-              📚 Subjects
-            </button>
-
-            <button
-              type="button"
-              className={`btn ${activeSection === 'results' ? 'btn-primary' : 'btn-outline'}`}
-              style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}
-              onClick={() => {
-                setActiveSection('results');
-                setSelectedSubject(null);
-                setSelectedCategory(null);
-              }}
-            >
-              🏆 My Results
-            </button>
-
-            <button
-              type="button"
-              className={`btn ${activeSection === 'purchases' ? 'btn-primary' : 'btn-outline'}`}
-              style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}
-              onClick={() => {
-                setActiveSection('purchases');
-                setSelectedSubject(null);
-                setSelectedCategory(null);
-              }}
-            >
-              💳 My Purchases
-            </button>
-
-            <button
-              type="button"
-              className={`btn ${activeSection === 'profile' ? 'btn-primary' : 'btn-outline'}`}
-              style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}
-              onClick={() => {
-                setActiveSection('profile');
-                setSelectedSubject(null);
-                setSelectedCategory(null);
-              }}
-            >
-              👤 Profile
-            </button>
-
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
-              Candidate: <strong>{user?.fullName || user?.email}</strong>
-            </span>
-            <button
-              type="button"
-              className="btn btn-outline"
-              style={{ fontSize: '0.8rem', padding: '0.3rem 0.65rem' }}
-              onClick={logout}
-            >
-              Sign Out
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Active Exam in Progress Callout */}
-      {activeSession && (
+    <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+      {/* PrimePrep Student Top-level Sub-Header Navigation (hidden during active examination) */}
+      {activeSection !== 'exam' && (
         <div
           className="card"
           style={{
-            backgroundColor: '#fffbeb',
-            borderColor: '#fde68a',
-            borderWidth: '2px',
-            padding: '1.25rem',
+            padding: '0.75rem 1.25rem',
             marginBottom: '1.5rem',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '1rem',
+            backgroundColor: '#ffffff',
+            border: '1px solid var(--color-border)',
+            borderRadius: '10px',
+            boxShadow: 'var(--shadow)',
           }}
         >
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-              <span className="status-pill status-warning" style={{ fontSize: '0.75rem', fontWeight: 700 }}>
-                ACTIVE EXAM IN PROGRESS
-              </span>
-              <span style={{ fontSize: '0.85rem', color: '#92400e', fontWeight: 600 }}>
-                {activeSession.subjectName}
-              </span>
-            </div>
-            <h4 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#78350f' }}>
-              {activeSession.testTitle}
-            </h4>
-            <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#92400e' }}>
-              Started on {new Date(activeSession.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.
-              Your answers and timer are saved in real-time.
-            </p>
-          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className={`btn ${activeSection === 'dashboard' ? 'btn-primary' : 'btn-outline'}`}
+                style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}
+                onClick={() => setActiveSection('dashboard')}
+              >
+                📊 Dashboard
+              </button>
 
-          <button
-            type="button"
-            className="btn btn-primary"
-            style={{ backgroundColor: '#d97706', borderColor: '#b45309' }}
-            onClick={() => handleSelectHistoryAttempt(activeSession.id, true, activeSession.testId)}
-          >
-            Resume Examination &rarr;
-          </button>
+              <button
+                type="button"
+                className={`btn ${activeSection === 'subjects' ? 'btn-primary' : 'btn-outline'}`}
+                style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}
+                onClick={() => setActiveSection('subjects')}
+              >
+                📚 Subjects
+              </button>
+
+              <button
+                type="button"
+                className={`btn ${activeSection === 'results' ? 'btn-primary' : 'btn-outline'}`}
+                style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}
+                onClick={() => setActiveSection('results')}
+              >
+                🏆 My Results
+              </button>
+
+              <button
+                type="button"
+                className={`btn ${activeSection === 'profile' ? 'btn-primary' : 'btn-outline'}`}
+                style={{ fontSize: '0.85rem', padding: '0.4rem 0.9rem' }}
+                onClick={() => setActiveSection('profile')}
+              >
+                👤 Profile
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
+                Candidate: <strong>{user?.fullName || user?.email}</strong>
+              </span>
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem' }}
+                onClick={logout}
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       {/* =========================================================================
-          VIEW: MY RESULTS TAB
+          SECTION 1: DASHBOARD
+         ========================================================================= */}
+      {activeSection === 'dashboard' && (
+        <div>
+          {/* Welcome Greeting Banner */}
+          <div
+            className="card"
+            style={{
+              background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #2563eb 100%)',
+              color: '#ffffff',
+              padding: '1.75rem 2rem',
+              marginBottom: '1.5rem',
+              borderRadius: '12px',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+              <div>
+                <span
+                  style={{
+                    backgroundColor: 'rgba(255,255,255,0.2)',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    padding: '0.2rem 0.6rem',
+                    borderRadius: '999px',
+                    letterSpacing: '0.05em',
+                    textTransform: 'uppercase',
+                  }}
+                >
+                  CUET PG TEST PREPARATION
+                </span>
+                <h2 style={{ fontSize: '1.7rem', fontWeight: 800, margin: '0.5rem 0 0.35rem 0', color: '#ffffff' }}>
+                  Welcome back, {user?.fullName?.split(' ')[0] || 'Candidate'}!
+                </h2>
+                <p style={{ margin: 0, opacity: 0.9, fontSize: '0.95rem' }}>
+                  Track your mastery across sectional modules, full-length simulations, and previous-year question papers.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="btn"
+                style={{
+                  backgroundColor: '#ffffff',
+                  color: 'var(--color-primary)',
+                  fontWeight: 700,
+                  fontSize: '0.9rem',
+                  padding: '0.6rem 1.25rem',
+                  border: 'none',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                }}
+                onClick={() => setActiveSection('subjects')}
+              >
+                Practice Test Series &rarr;
+              </button>
+            </div>
+          </div>
+
+          {/* In-Progress Test Banner Callout */}
+          {inProgressAttempt && (
+            <div
+              className="card"
+              style={{
+                backgroundColor: '#fffbeb',
+                borderColor: '#fde68a',
+                borderWidth: '2px',
+                padding: '1.25rem',
+                marginBottom: '1.5rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '1rem',
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                  <span className="status-pill status-warning" style={{ fontSize: '0.75rem', fontWeight: 700 }}>
+                    ACTIVE EXAM IN PROGRESS
+                  </span>
+                  <span style={{ fontSize: '0.85rem', color: '#92400e', fontWeight: 600 }}>
+                    {inProgressAttempt.subjectName}
+                  </span>
+                </div>
+                <h4 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: '#78350f' }}>
+                  {inProgressAttempt.testTitle}
+                </h4>
+                <p style={{ margin: '0.25rem 0 0 0', fontSize: '0.85rem', color: '#92400e' }}>
+                  Started on {new Date(inProgressAttempt.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.
+                  Your timer and answers are synchronized with PostgreSQL.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ backgroundColor: '#d97706', borderColor: '#b45309' }}
+                onClick={() => handleSelectHistoryAttempt(inProgressAttempt.id, true, inProgressAttempt.testId)}
+              >
+                Resume Examination &rarr;
+              </button>
+            </div>
+          )}
+
+          {/* Summary Stat Cards */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+              gap: '1rem',
+              marginBottom: '1.5rem',
+            }}
+          >
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                Total Attempts
+              </div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-primary)', marginTop: '0.25rem' }}>
+                {attempts.length}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                {completedAttempts.length} Submitted &bull; {inProgressAttempt ? 1 : 0} Active
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                Average Score
+              </div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: '#16a34a', marginTop: '0.25rem' }}>
+                {avgScore}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                Marking: +4 per correct, -1 per incorrect
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                Accuracy Rate
+              </div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: '#2563eb', marginTop: '0.25rem' }}>
+                {avgAccuracy}%
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                Based on completed tests
+              </div>
+            </div>
+
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>
+                Target Discipline
+              </div>
+              <div style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--color-primary)', marginTop: '0.5rem' }}>
+                {profileStats?.targetSubjectCode ? (
+                  subjects.find((s) => s.paper_code === profileStats.targetSubjectCode)?.name || profileStats.targetSubjectCode
+                ) : (
+                  'Not set'
+                )}
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.25rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('profile')}
+                  style={{ background: 'none', border: 'none', color: 'var(--color-primary)', cursor: 'pointer', padding: 0, fontWeight: 600 }}
+                >
+                  Edit in Profile &rarr;
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Subject Access: The 7 CUET PG Subjects with Sectional, Full-Length, and PYQ Links */}
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
+            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 className="card-title">CUET PG Subjects Catalogue</h3>
+                <p className="card-subtitle">Select a subject to explore Sectional Tests (1–15), Full-Length Mocks (1–10), and PYQ Tests (1–5)</p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setActiveSection('subjects')}
+                style={{ fontSize: '0.85rem' }}
+              >
+                View Full Hierarchy &rarr;
+              </button>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem' }}>
+              {subjects.map((subj) => (
+                <div
+                  key={subj.id}
+                  style={{
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius)',
+                    padding: '1.25rem',
+                    backgroundColor: 'var(--color-surface)',
+                    boxShadow: 'var(--shadow)',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--color-accent)' }}>
+                      {subj.paper_code || subj.code || 'CUET PG'}
+                    </span>
+                    <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>
+                      {subj.test_count || 0} Tests Available
+                    </span>
+                  </div>
+
+                  <h4 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--color-primary)', marginBottom: '0.5rem' }}>
+                    {subj.name}
+                  </h4>
+
+                  <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '1rem', minHeight: '2.5rem' }}>
+                    {subj.description || 'Comprehensive CUET PG preparation syllabus.'}
+                  </p>
+
+                  {/* 3 Categories Badges */}
+                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', flex: 1 }}
+                      onClick={() => handleSelectSubject(subj, 'sectional')}
+                    >
+                      Sectional
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', flex: 1 }}
+                      onClick={() => handleSelectSubject(subj, 'full_length')}
+                    >
+                      Full-Length
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', flex: 1 }}
+                      onClick={() => handleSelectSubject(subj, 'pyq')}
+                    >
+                      PYQ Tests
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent Test Attempts Table */}
+          {completedAttempts.length > 0 && (
+            <div className="card">
+              <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h3 className="card-title">Recent Test Results</h3>
+                  <p className="card-subtitle">Your latest examination submissions and scorecards</p>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => setActiveSection('results')}
+                  style={{ fontSize: '0.85rem' }}
+                >
+                  View All Scorecards ({completedAttempts.length}) &rarr;
+                </button>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Test Title</th>
+                      <th>Subject</th>
+                      <th>Category</th>
+                      <th>Submitted</th>
+                      <th>Score</th>
+                      <th>Accuracy</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {completedAttempts.slice(0, 5).map((att) => (
+                      <tr key={att.id}>
+                        <td><strong>{att.testTitle}</strong></td>
+                        <td>{att.subjectName}</td>
+                        <td>
+                          <span className="status-pill status-secondary" style={{ textTransform: 'uppercase', fontSize: '0.7rem' }}>
+                            {att.testType?.replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                          {new Date(att.submittedAt || att.startedAt).toLocaleDateString()}
+                        </td>
+                        <td>
+                          <strong style={{ color: att.score >= 0 ? '#16a34a' : '#dc2626' }}>
+                            {att.score}
+                          </strong>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}> / {att.maxPossibleMarks}</span>
+                        </td>
+                        <td>{att.accuracyPercentage}%</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="btn btn-outline"
+                            style={{ padding: '0.25rem 0.55rem', fontSize: '0.75rem' }}
+                            onClick={() => handleSelectHistoryAttempt(att.id, false, att.testId)}
+                          >
+                            View Solutions &rarr;
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =========================================================================
+          SECTION 2: SUBJECTS (Political Science, Philosophy, Psychology, etc. -> Sectional, Full-Length, PYQ)
+         ========================================================================= */}
+      {activeSection === 'subjects' && (
+        <div>
+          {/* Top Subjects Navigation Pills / Selector */}
+          <div
+            className="card"
+            style={{
+              padding: '1rem',
+              marginBottom: '1.25rem',
+              backgroundColor: '#f8fafc',
+            }}
+          >
+            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '0.5rem', textTransform: 'uppercase' }}>
+              Select CUET PG Subject:
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {subjects.map((subj) => {
+                const isSelected = selectedSubject?.id === subj.id;
+                return (
+                  <button
+                    key={subj.id}
+                    type="button"
+                    className={`btn ${isSelected ? 'btn-primary' : 'btn-outline'}`}
+                    style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}
+                    onClick={() => handleSelectSubject(subj, activeCategory)}
+                  >
+                    <span>{subj.name}</span>
+                    <span
+                      style={{
+                        marginLeft: '0.4rem',
+                        fontSize: '0.75rem',
+                        opacity: 0.85,
+                        backgroundColor: isSelected ? 'rgba(255,255,255,0.25)' : '#e2e8f0',
+                        padding: '0.1rem 0.4rem',
+                        borderRadius: '999px',
+                      }}
+                    >
+                      {subj.paper_code || subj.code}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Selected Subject Main Pane */}
+          {selectedSubject && (
+            <div className="card">
+              {/* Subject Title & Description Header */}
+              <div
+                style={{
+                  borderBottom: '1px solid var(--color-border)',
+                  paddingBottom: '1.25rem',
+                  marginBottom: '1.25rem',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  flexWrap: 'wrap',
+                  gap: '1rem',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
+                    <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-primary)', margin: 0 }}>
+                      {selectedSubject.name}
+                    </h2>
+                    <span className="status-pill status-primary" style={{ fontWeight: 700 }}>
+                      Paper Code: {selectedSubject.paper_code || selectedSubject.code || 'CUET PG'}
+                    </span>
+                  </div>
+                  <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.9rem', maxWidth: '750px' }}>
+                    {selectedSubject.description || 'Comprehensive CUET PG preparation syllabus.'}
+                  </p>
+                </div>
+
+                <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', textAlign: 'right' }}>
+                  <div><strong>{chapters.length}</strong> Published Chapters</div>
+                  <div><strong>{selectedSubject.test_count || tests.length}</strong> Total Tests</div>
+                </div>
+              </div>
+
+              {/* THE 3 CATEGORIES: Sectional Tests, Full-Length Tests, PYQ Tests */}
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0.5rem',
+                  borderBottom: '2px solid var(--color-border)',
+                  marginBottom: '1.25rem',
+                  paddingBottom: '0.25rem',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setActiveCategory('sectional')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: activeCategory === 'sectional' ? '3px solid var(--color-primary)' : '3px solid transparent',
+                    color: activeCategory === 'sectional' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                    fontWeight: activeCategory === 'sectional' ? 700 : 500,
+                    fontSize: '0.95rem',
+                    padding: '0.6rem 1rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  📑 Sectional Tests
+                  <span
+                    style={{
+                      marginLeft: '0.4rem',
+                      fontSize: '0.75rem',
+                      padding: '0.15rem 0.45rem',
+                      borderRadius: '999px',
+                      backgroundColor: activeCategory === 'sectional' ? '#eff6ff' : '#f1f5f9',
+                      color: activeCategory === 'sectional' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                    }}
+                  >
+                    1–15
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveCategory('full_length')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: activeCategory === 'full_length' ? '3px solid var(--color-primary)' : '3px solid transparent',
+                    color: activeCategory === 'full_length' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                    fontWeight: activeCategory === 'full_length' ? 700 : 500,
+                    fontSize: '0.95rem',
+                    padding: '0.6rem 1rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  🎯 Full-Length Mocks
+                  <span
+                    style={{
+                      marginLeft: '0.4rem',
+                      fontSize: '0.75rem',
+                      padding: '0.15rem 0.45rem',
+                      borderRadius: '999px',
+                      backgroundColor: activeCategory === 'full_length' ? '#eff6ff' : '#f1f5f9',
+                      color: activeCategory === 'full_length' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                    }}
+                  >
+                    1–10
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveCategory('pyq')}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    borderBottom: activeCategory === 'pyq' ? '3px solid var(--color-primary)' : '3px solid transparent',
+                    color: activeCategory === 'pyq' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                    fontWeight: activeCategory === 'pyq' ? 700 : 500,
+                    fontSize: '0.95rem',
+                    padding: '0.6rem 1rem',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  📖 PYQ Tests
+                  <span
+                    style={{
+                      marginLeft: '0.4rem',
+                      fontSize: '0.75rem',
+                      padding: '0.15rem 0.45rem',
+                      borderRadius: '999px',
+                      backgroundColor: activeCategory === 'pyq' ? '#eff6ff' : '#f1f5f9',
+                      color: activeCategory === 'pyq' ? 'var(--color-primary)' : 'var(--color-text-muted)',
+                    }}
+                  >
+                    1–5
+                  </span>
+                </button>
+              </div>
+
+              {/* Sub-filter: Chapter Selector */}
+              {chapters.length > 0 && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+                    Filter by Chapter:
+                  </span>
+                  <select
+                    className="input-field"
+                    style={{ maxWidth: '320px', padding: '0.35rem 0.75rem', fontSize: '0.85rem' }}
+                    value={selectedChapterId}
+                    onChange={(e) => setSelectedChapterId(e.target.value)}
+                  >
+                    <option value="ALL">All Chapters ({chapters.length})</option>
+                    {chapters.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        Chapter {c.display_order}: {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Tests Grid */}
+              {testsError && (
+                <div className="status-pill status-error" style={{ display: 'block', padding: '0.75rem 1rem', marginBottom: '1rem' }}>
+                  {testsError}
+                </div>
+              )}
+
+              {loadingTests ? (
+                <div style={{ textAlign: 'center', padding: '3.5rem', color: 'var(--color-text-muted)' }}>
+                  Loading {activeCategory.replace('_', ' ')} tests for {selectedSubject.name}...
+                </div>
+              ) : tests.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '3.5rem', color: 'var(--color-text-muted)' }}>
+                  <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
+                    No published {activeCategory.replace('_', ' ')} tests available in this selection yet.
+                  </p>
+                  <p style={{ fontSize: '0.85rem' }}>
+                    Please check another category or chapter.
+                  </p>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.25rem' }}>
+                  {tests.map((t) => {
+                    const hasQuestions = (t.question_count || 0) > 0;
+                    const hasAttempted = Boolean(t.latest_attempt_id);
+                    const isInProgress = t.latest_attempt_status === 'in_progress';
+                    const isSubmitted = t.latest_attempt_status === 'submitted';
+
+                    return (
+                      <div
+                        key={t.id}
+                        style={{
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius)',
+                          padding: '1.25rem',
+                          backgroundColor: 'var(--color-surface)',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          boxShadow: 'var(--shadow)',
+                          position: 'relative',
+                        }}
+                      >
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-accent)' }}>
+                              TEST #{t.test_number || '1'} &bull; {t.chapter_name || 'General'}
+                            </span>
+                            <div style={{ display: 'flex', gap: '0.35rem' }}>
+                              {t.access_type === 'free' ? (
+                                <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>FREE</span>
+                              ) : (
+                                <span className="status-pill status-primary" style={{ fontSize: '0.7rem' }}>PAID</span>
+                              )}
+                              {isInProgress && (
+                                <span className="status-pill status-warning" style={{ fontSize: '0.7rem' }}>RESUMABLE</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <h4 style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--color-primary)', marginBottom: '0.35rem' }}>
+                            {t.title}
+                          </h4>
+
+                          <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '0.75rem', minHeight: '2rem' }}>
+                            {t.description || `${selectedSubject.name} examination test series.`}
+                          </p>
+
+                          <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: '1rem', flexWrap: 'wrap' }}>
+                            <span>⏱️ {t.duration_minutes || 60} mins</span>
+                            <span>❓ {t.question_count || 0} Questions</span>
+                            <span>🎯 +{t.positive_marks || 4} / -{t.negative_marks || 1}</span>
+                          </div>
+                        </div>
+
+                        <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem' }}>
+                          {isSubmitted ? (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                Score: <strong style={{ color: '#16a34a' }}>{t.latest_attempt_score}</strong>
+                              </span>
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button
+                                  type="button"
+                                  className="btn btn-outline"
+                                  style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }}
+                                  onClick={() => handleSelectHistoryAttempt(t.latest_attempt_id, false, t.id)}
+                                >
+                                  Solutions
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-primary"
+                                  style={{ padding: '0.3rem 0.65rem', fontSize: '0.75rem' }}
+                                  onClick={() => handleOpenTestInstructions(t.id)}
+                                >
+                                  Retake
+                                </button>
+                              </div>
+                            </div>
+                          ) : isInProgress ? (
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              style={{ width: '100%', fontSize: '0.85rem', padding: '0.45rem', backgroundColor: '#d97706', borderColor: '#b45309' }}
+                              onClick={() => handleSelectHistoryAttempt(t.latest_attempt_id, true, t.id)}
+                            >
+                              Resume Attempt &rarr;
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              disabled={!hasQuestions}
+                              style={{ width: '100%', fontSize: '0.85rem', padding: '0.45rem' }}
+                              onClick={() => handleOpenTestInstructions(t.id)}
+                            >
+                              {hasQuestions ? 'Start Test Series \u2192' : 'Questions Pending'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* =========================================================================
+          SECTION 3: MY RESULTS
          ========================================================================= */}
       {activeSection === 'results' && (
         <StudentAttemptHistory
@@ -446,748 +928,40 @@ export default function StudentDashboard({ initialSection = 'dashboard', initial
       )}
 
       {/* =========================================================================
-          VIEW: MY PURCHASES TAB
+          SECTION 4: PROFILE
          ========================================================================= */}
-      {activeSection === 'purchases' && (
-        <StudentPurchaseHistory
-          onExploreSubject={(subjId) => {
-            setActiveSection('subjects');
-            if (subjId) {
-              const found = subjects.find((s) => s.id === subjId);
-              if (found) {
-                handleSelectSubject(found);
-              }
-            }
-          }}
-        />
-      )}
-
-      {/* =========================================================================
-          VIEW: PROFILE TAB
-         ========================================================================= */}
-
       {activeSection === 'profile' && (
         <StudentProfile
-          onNavigateToSubject={(subj) => {
-            setActiveSection('subjects');
-            handleSelectSubject(subj);
-          }}
+          onNavigateToSubject={(subj) => handleSelectSubject(subj, 'sectional')}
           onNavigateToResults={() => setActiveSection('results')}
         />
       )}
 
       {/* =========================================================================
-          LEVEL 1: SUBJECT SELECTION (Default Dashboard & Subjects root)
+          EXAMINATION FLOW VIEWS: Instructions, Active Exam, and Solutions Result
          ========================================================================= */}
-      {(activeSection === 'dashboard' || activeSection === 'subjects') && !selectedSubject && (
-        <div>
-          {/* Welcome Section */}
-          <div
-            className="card"
-            style={{
-              background: 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 50%, #2563eb 100%)',
-              color: '#ffffff',
-              padding: '2rem',
-              marginBottom: '1.75rem',
-              borderRadius: '12px',
-            }}
-          >
-            <span
-              style={{
-                backgroundColor: 'rgba(255,255,255,0.2)',
-                fontSize: '0.75rem',
-                fontWeight: 700,
-                padding: '0.2rem 0.6rem',
-                borderRadius: '999px',
-                letterSpacing: '0.05em',
-                textTransform: 'uppercase',
-              }}
-            >
-              CUET PG TEST PREPARATION PLATFORM
-            </span>
-            <h1 style={{ fontSize: '1.8rem', fontWeight: 800, margin: '0.5rem 0 0.4rem 0', color: '#ffffff' }}>
-              Welcome, {user?.fullName?.split(' ')[0] || 'Candidate'}!
-            </h1>
-            <p style={{ margin: 0, opacity: 0.9, fontSize: '0.95rem', maxWidth: '750px' }}>
-              Select your CUET PG examination discipline below to access Sectional Tests, Full-Length Mocks, and Previous Year Questions.
-            </p>
-          </div>
-
-          {/* Heading */}
-          <div style={{ marginBottom: '1.25rem' }}>
-            <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--color-primary)', margin: 0 }}>
-              CUET PG Examination Disciplines
-            </h2>
-            <p style={{ margin: '0.25rem 0 0 0', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
-              Choose a subject to explore its three test categories and track your performance
-            </p>
-          </div>
-
-          {subjectsError && (
-            <div className="status-pill status-error" style={{ display: 'block', padding: '0.85rem 1.25rem', marginBottom: '1.5rem' }}>
-              {subjectsError}
-            </div>
-          )}
-
-          {loadingSubjects ? (
-            <div className="card" style={{ textAlign: 'center', padding: '3.5rem' }}>
-              <p style={{ color: 'var(--color-text-muted)', fontSize: '1rem' }}>Loading CUET PG subjects from database...</p>
-            </div>
-          ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                gap: '1.25rem',
-              }}
-            >
-              {displaySubjects.map((subj) => {
-                const icon = SUBJECT_ICONS[subj.name] || '📚';
-                const totalTests = parseInt(subj.total_tests || subj.test_count || 0, 10);
-                const completedCount = parseInt(subj.completed_tests || 0, 10);
-                const bestScore = subj.best_score !== null && subj.best_score !== undefined
-                  ? parseFloat(subj.best_score)
-                  : null;
-
-                return (
-                  <div
-                    key={subj.id}
-                    className="card"
-                    style={{
-                      padding: '1.5rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      borderRadius: '10px',
-                      border: '1px solid var(--color-border)',
-                      transition: 'all 0.15s ease',
-                      boxShadow: 'var(--shadow)',
-                    }}
-                  >
-                    <div>
-                      {/* Top Badges */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                        <span style={{ fontSize: '1.6rem' }}>{icon}</span>
-                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                          <span
-                            style={{
-                              fontSize: '0.75rem',
-                              fontWeight: 700,
-                              backgroundColor: '#eff6ff',
-                              color: 'var(--color-primary)',
-                              padding: '0.2rem 0.55rem',
-                              borderRadius: '4px',
-                              border: '1px solid #bfdbfe',
-                            }}
-                          >
-                            {subj.paper_code || subj.code || 'CUET PG'}
-                          </span>
-                          <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>
-                            {totalTests} Tests
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Subject Name */}
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-primary)', marginBottom: '0.35rem' }}>
-                        {subj.name}
-                      </h3>
-
-                      <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '1.25rem', minHeight: '2.5rem' }}>
-                        {subj.description || `Comprehensive CUET PG preparation modules for ${subj.name}.`}
-                      </p>
-
-                      {/* Category Breakdown Badges */}
-                      <div
-                        style={{
-                          backgroundColor: '#f8fafc',
-                          padding: '0.75rem',
-                          borderRadius: '6px',
-                          border: '1px solid var(--color-border)',
-                          marginBottom: '1rem',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                          <span>Sectional: <strong>{subj.sectional_count || 0}</strong></span>
-                          <span>Full-Length: <strong>{subj.full_length_count || 0}</strong></span>
-                          <span>PYQ: <strong>{subj.pyq_count || 0}</strong></span>
-                        </div>
-                      </div>
-
-                      {/* Performance Summary if student attempted */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '1rem', color: 'var(--color-text-muted)' }}>
-                        <span>
-                          Completed: <strong>{completedCount}</strong> test{completedCount === 1 ? '' : 's'}
-                        </span>
-                        {bestScore !== null ? (
-                          <span style={{ color: '#16a34a', fontWeight: 700 }}>
-                            Best Score: {bestScore}
-                          </span>
-                        ) : (
-                          <span>Not attempted yet</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* View Tests Action */}
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      style={{ width: '100%', padding: '0.55rem', fontSize: '0.9rem', fontWeight: 700 }}
-                      onClick={() => handleSelectSubject(subj)}
-                    >
-                      View Tests &rarr;
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+      {activeSection === 'instructions' && activeTestId && (
+        <StudentTestInstructions
+          testId={activeTestId}
+          onStartExam={handleStartExam}
+          onBack={() => setActiveSection('subjects')}
+        />
       )}
 
-      {/* =========================================================================
-          LEVEL 2: THREE TEST CATEGORIES FOR SELECTED SUBJECT
-         ========================================================================= */}
-      {selectedSubject && !selectedCategory && (
-        <div>
-          {/* Breadcrumb Navigation */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-            <button
-              type="button"
-              onClick={() => setSelectedSubject(null)}
-              style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontWeight: 600, cursor: 'pointer', padding: 0 }}
-            >
-              &larr; All Subjects
-            </button>
-            <span style={{ color: 'var(--color-text-muted)' }}>&gt;</span>
-            <span style={{ fontWeight: 700, color: 'var(--color-text)' }}>{selectedSubject.name}</span>
-          </div>
-
-          {/* Subject Banner Header */}
-          <div
-            className="card"
-            style={{
-              padding: '1.75rem',
-              marginBottom: '1.5rem',
-              borderLeft: '5px solid var(--color-primary)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.35rem' }}>
-                  <span style={{ fontSize: '1.8rem' }}>{SUBJECT_ICONS[selectedSubject.name] || '📚'}</span>
-                  <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--color-primary)', margin: 0 }}>
-                    {selectedSubject.name}
-                  </h1>
-                  <span className="status-pill status-primary" style={{ fontWeight: 700 }}>
-                    {selectedSubject.paper_code || selectedSubject.code || 'CUET PG'}
-                  </span>
-                </div>
-                <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.95rem', maxWidth: '750px' }}>
-                  {selectedSubject.description || `Prepare confidently for CUET PG ${selectedSubject.name} across Sectional, Full-Length, and PYQ tests.`}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => setSelectedSubject(null)}
-                style={{ fontSize: '0.85rem' }}
-              >
-                Change Subject
-              </button>
-            </div>
-          </div>
-
-          {/* LEVEL 2: Exactly Three Test Categories */}
-          <div style={{ marginBottom: '1rem' }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-primary)', margin: '0 0 0.35rem 0' }}>
-              Select Test Category
-            </h2>
-            <p style={{ margin: 0, color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
-              Choose a category to view individual tests, attempt exams, and inspect solutions
-            </p>
-          </div>
-
-          {loadingCategoryStats ? (
-            <div className="card" style={{ textAlign: 'center', padding: '3rem' }}>
-              <p style={{ color: 'var(--color-text-muted)' }}>Loading {selectedSubject.name} categories and statistics...</p>
-            </div>
-          ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                gap: '1.25rem',
-                marginBottom: '2rem',
-              }}
-            >
-              {categoryStats.map((cat) => {
-                const isSectional = cat.testType === 'sectional';
-                const isFullLength = cat.testType === 'full_length';
-                const isPyq = cat.testType === 'pyq';
-
-                const catBadge = isSectional
-                  ? { icon: '📑', label: 'SECTIONAL' }
-                  : isFullLength
-                  ? { icon: '🎯', label: 'FULL-LENGTH' }
-                  : { icon: '📖', label: 'PYQ PAPERS' };
-
-                return (
-                  <div
-                    key={cat.testType}
-                    className="card"
-                    style={{
-                      padding: '1.5rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      borderRadius: '10px',
-                      border: '1px solid var(--color-border)',
-                      boxShadow: 'var(--shadow)',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                        <span style={{ fontSize: '1.5rem' }}>{catBadge.icon}</span>
-                        <span
-                          style={{
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
-                            backgroundColor: '#eff6ff',
-                            color: 'var(--color-primary)',
-                            padding: '0.2rem 0.55rem',
-                            borderRadius: '4px',
-                          }}
-                        >
-                          {catBadge.label}
-                        </span>
-                      </div>
-
-                      <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-primary)', marginBottom: '0.4rem' }}>
-                        {cat.title}
-                      </h3>
-
-                      <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '1.25rem', minHeight: '2.5rem' }}>
-                        {cat.description}
-                      </p>
-
-                      {/* Category-specific statistics isolated to selected subject */}
-                      <div
-                        style={{
-                          backgroundColor: '#f8fafc',
-                          padding: '0.85rem',
-                          borderRadius: '8px',
-                          border: '1px solid var(--color-border)',
-                          marginBottom: '1.25rem',
-                        }}
-                      >
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', fontSize: '0.85rem' }}>
-                          <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>AVAILABLE</div>
-                            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--color-primary)' }}>
-                              {cat.availableTests} Tests
-                            </div>
-                          </div>
-
-                          <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>COMPLETED</div>
-                            <div style={{ fontSize: '1.25rem', fontWeight: 800, color: '#16a34a' }}>
-                              {cat.completedTests} Tests
-                            </div>
-                          </div>
-
-                          <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>BEST SCORE</div>
-                            <div style={{ fontSize: '1rem', fontWeight: 700, color: cat.bestScore !== null ? '#16a34a' : 'var(--color-text-muted)' }}>
-                              {cat.bestScore !== null ? cat.bestScore : '—'}
-                            </div>
-                          </div>
-
-                          <div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 600 }}>AVERAGE SCORE</div>
-                            <div style={{ fontSize: '1rem', fontWeight: 700, color: cat.averageScore !== null ? 'var(--color-primary)' : 'var(--color-text-muted)' }}>
-                              {cat.averageScore !== null ? cat.averageScore : '—'}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      style={{ width: '100%', padding: '0.55rem', fontWeight: 700, fontSize: '0.9rem' }}
-                      onClick={() => handleSelectCategory(cat.testType)}
-                    >
-                      View Tests &rarr;
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Subject-Wise Test History and Scores (Section 7 Requirement) */}
-          <div className="card">
-            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <h3 className="card-title">My {selectedSubject.name} Test History</h3>
-                <p className="card-subtitle">Previous attempts and performance strictly isolated to {selectedSubject.name}</p>
-              </div>
-            </div>
-
-            {loadingSubjectHistory ? (
-              <p style={{ color: 'var(--color-text-muted)', textAlign: 'center', padding: '2rem' }}>
-                Loading {selectedSubject.name} history...
-              </p>
-            ) : subjectHistory.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--color-text-muted)' }}>
-                <p style={{ fontSize: '0.95rem', marginBottom: '0.5rem' }}>
-                  No previous attempts found for {selectedSubject.name} yet.
-                </p>
-                <p style={{ fontSize: '0.85rem' }}>
-                  Select one of the three test categories above to take your first test!
-                </p>
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Test Name</th>
-                      <th>Category</th>
-                      <th>Attempt Date</th>
-                      <th>Score</th>
-                      <th>Accuracy</th>
-                      <th>Time Taken</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {subjectHistory.map((att) => {
-                      const isCompleted = att.status === 'submitted';
-                      const mins = Math.floor((att.timeTakenSeconds || 0) / 60);
-                      const secs = (att.timeTakenSeconds || 0) % 60;
-                      const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-
-                      return (
-                        <tr key={att.id}>
-                          <td><strong>{att.testTitle}</strong></td>
-                          <td>
-                            <span className="status-pill status-secondary" style={{ textTransform: 'uppercase', fontSize: '0.7rem' }}>
-                              {att.testType?.replace('_', ' ')}
-                            </span>
-                          </td>
-                          <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
-                            {new Date(att.startedAt).toLocaleDateString()} {new Date(att.startedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </td>
-                          <td>
-                            {isCompleted ? (
-                              <div>
-                                <strong style={{ color: att.score >= 0 ? '#16a34a' : '#dc2626' }}>
-                                  {att.score}
-                                </strong>
-                                <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}> / {att.maxPossibleMarks}</span>
-                              </div>
-                            ) : (
-                              <span className="status-pill status-warning" style={{ fontSize: '0.75rem' }}>IN PROGRESS</span>
-                            )}
-                          </td>
-                          <td>{isCompleted ? `${att.accuracyPercentage}%` : '—'}</td>
-                          <td style={{ fontSize: '0.85rem' }}>{isCompleted ? timeStr : '—'}</td>
-                          <td>
-                            {isCompleted ? (
-                              <button
-                                type="button"
-                                className="btn btn-outline"
-                                style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem' }}
-                                onClick={() => handleSelectHistoryAttempt(att.id, false, att.testId)}
-                              >
-                                View Solutions &rarr;
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="btn btn-primary"
-                                style={{ padding: '0.25rem 0.6rem', fontSize: '0.75rem', backgroundColor: '#d97706', borderColor: '#b45309' }}
-                                onClick={() => handleSelectHistoryAttempt(att.id, true, att.testId)}
-                              >
-                                Resume &rarr;
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </div>
+      {activeSection === 'exam' && activeAttemptId && (
+        <StudentExamInterface
+          attemptId={activeAttemptId}
+          initialData={initialExamData}
+          onSubmitSuccess={handleSubmitSuccess}
+        />
       )}
 
-      {/* =========================================================================
-          LEVEL 3: INDIVIDUAL TEST SERIES
-         ========================================================================= */}
-      {selectedSubject && selectedCategory && (
-        <div>
-          {/* Breadcrumb Navigation */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', marginBottom: '1.25rem' }}>
-            <button
-              type="button"
-              onClick={() => setSelectedSubject(null)}
-              style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontWeight: 600, cursor: 'pointer', padding: 0 }}
-            >
-              Subjects
-            </button>
-            <span style={{ color: 'var(--color-text-muted)' }}>&gt;</span>
-            <button
-              type="button"
-              onClick={() => setSelectedCategory(null)}
-              style={{ background: 'none', border: 'none', color: 'var(--color-primary)', fontWeight: 600, cursor: 'pointer', padding: 0 }}
-            >
-              {selectedSubject.name}
-            </button>
-            <span style={{ color: 'var(--color-text-muted)' }}>&gt;</span>
-            <span style={{ fontWeight: 700, color: 'var(--color-text)', textTransform: 'capitalize' }}>
-              {selectedCategory.replace('_', ' ')} Tests
-            </span>
-          </div>
-
-          {/* Test Category Header & Switcher */}
-          <div className="card" style={{ marginBottom: '1.25rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
-              <div>
-                <h1 style={{ fontSize: '1.45rem', fontWeight: 800, color: 'var(--color-primary)', margin: 0 }}>
-                  {selectedSubject.name} &bull; {selectedCategory === 'sectional' ? 'Sectional Tests' : selectedCategory === 'full_length' ? 'Full-Length Mock Tests' : 'PYQ Tests'}
-                </h1>
-                <p style={{ margin: '0.25rem 0 0 0', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
-                  {selectedSubject.paper_code || 'CUET PG'} &bull; Practicing under actual examination conditions
-                </p>
-              </div>
-
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => setSelectedCategory(null)}
-                style={{ fontSize: '0.85rem' }}
-              >
-                &larr; Back to Categories
-              </button>
-            </div>
-
-            {/* Quick Category Switcher Tabs */}
-            <div style={{ display: 'flex', gap: '0.5rem', borderTop: '1px solid var(--color-border)', paddingTop: '0.75rem', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                className={`btn ${selectedCategory === 'sectional' ? 'btn-primary' : 'btn-outline'}`}
-                style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
-                onClick={() => handleSelectCategory('sectional')}
-              >
-                📑 Sectional Tests
-              </button>
-              <button
-                type="button"
-                className={`btn ${selectedCategory === 'full_length' ? 'btn-primary' : 'btn-outline'}`}
-                style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
-                onClick={() => handleSelectCategory('full_length')}
-              >
-                🎯 Full-Length Tests
-              </button>
-              <button
-                type="button"
-                className={`btn ${selectedCategory === 'pyq' ? 'btn-primary' : 'btn-outline'}`}
-                style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
-                onClick={() => handleSelectCategory('pyq')}
-              >
-                📖 PYQ Tests
-              </button>
-            </div>
-          </div>
-
-          {testsError && (
-            <div className="status-pill status-error" style={{ display: 'block', padding: '0.85rem', marginBottom: '1.25rem' }}>
-              {testsError}
-            </div>
-          )}
-
-          {/* Test List */}
-          {loadingTests ? (
-            <div className="card" style={{ textAlign: 'center', padding: '3.5rem' }}>
-              <p style={{ color: 'var(--color-text-muted)' }}>Loading {selectedCategory.replace('_', ' ')} tests...</p>
-            </div>
-          ) : tests.length === 0 ? (
-            <div className="card" style={{ textAlign: 'center', padding: '3.5rem', color: 'var(--color-text-muted)' }}>
-              <p style={{ fontSize: '1.1rem', marginBottom: '0.5rem' }}>
-                No published {selectedCategory.replace('_', ' ')} tests available yet for {selectedSubject.name}.
-              </p>
-              <p style={{ fontSize: '0.85rem' }}>
-                Please check Sectional, Full-Length, or PYQ tabs.
-              </p>
-            </div>
-          ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-                gap: '1.25rem',
-              }}
-            >
-              {tests.map((t, idx) => {
-                const hasQuestions = (t.question_count || 0) > 0;
-                const isInProgress = t.latest_attempt_status === 'in_progress';
-                const isSubmitted = t.latest_attempt_status === 'submitted';
-                const score = t.latest_attempt_score !== null && t.latest_attempt_score !== undefined
-                  ? parseFloat(t.latest_attempt_score)
-                  : null;
-
-                return (
-                  <div
-                    key={t.id}
-                    className="card"
-                    style={{
-                      padding: '1.5rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      borderRadius: '10px',
-                      border: '1px solid var(--color-border)',
-                      boxShadow: 'var(--shadow)',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <div>
-                      {/* Top Meta */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--color-accent)' }}>
-                          TEST #{String(t.test_number || idx + 1).padStart(2, '0')}
-                        </span>
-                        <div style={{ display: 'flex', gap: '0.35rem' }}>
-                          {t.is_free || t.access_type === 'free' ? (
-                            <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>FREE</span>
-                          ) : t.is_unlocked ? (
-                            <span className="status-pill status-primary" style={{ fontSize: '0.7rem', backgroundColor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}>
-                              UNLOCKED ✓
-                            </span>
-                          ) : (
-                            <span className="status-pill status-warning" style={{ fontSize: '0.7rem', backgroundColor: '#fef3c7', color: '#92400e', fontWeight: 700 }}>
-                              LOCKED 🔒
-                            </span>
-                          )}
-                          {isSubmitted && (
-                            <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>COMPLETED</span>
-                          )}
-                          {isInProgress && (
-                            <span className="status-pill status-warning" style={{ fontSize: '0.7rem' }}>IN PROGRESS</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Title */}
-                      <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--color-primary)', marginBottom: '0.4rem' }}>
-                        {t.title}
-                      </h3>
-
-                      <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '1rem', minHeight: '2.2rem' }}>
-                        {t.description || `${selectedSubject.name} examination test series.`}
-                      </p>
-
-                      {/* Specifications Grid */}
-                      <div
-                        style={{
-                          display: 'grid',
-                          gridTemplateColumns: '1fr 1fr 1fr',
-                          gap: '0.5rem',
-                          backgroundColor: '#f8fafc',
-                          padding: '0.65rem 0.75rem',
-                          borderRadius: '6px',
-                          border: '1px solid var(--color-border)',
-                          fontSize: '0.8rem',
-                          color: 'var(--color-text-muted)',
-                          marginBottom: '1rem',
-                          textAlign: 'center',
-                        }}
-                      >
-                        <div>
-                          <div style={{ fontSize: '0.7rem', fontWeight: 600 }}>QUESTIONS</div>
-                          <div style={{ fontWeight: 700, color: 'var(--color-primary)' }}>{t.question_count || 0}</div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '0.7rem', fontWeight: 600 }}>DURATION</div>
-                          <div style={{ fontWeight: 700, color: 'var(--color-primary)' }}>{t.duration_minutes || 45}m</div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: '0.7rem', fontWeight: 600 }}>MARKING</div>
-                          <div style={{ fontWeight: 700, color: 'var(--color-primary)' }}>+{t.positive_marks || 4}/-{t.negative_marks || 1}</div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Bottom Action Area */}
-                    <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: '0.85rem' }}>
-                      {isSubmitted ? (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <span style={{ fontSize: '0.85rem' }}>
-                            Score: <strong style={{ color: '#16a34a' }}>{score}</strong>
-                          </span>
-                          <button
-                            type="button"
-                            className="btn btn-outline"
-                            style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
-                            onClick={() => handleSelectHistoryAttempt(t.latest_attempt_id, false, t.id)}
-                          >
-                            View Result &rarr;
-                          </button>
-                        </div>
-                      ) : isInProgress ? (
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          style={{ width: '100%', padding: '0.5rem', fontSize: '0.85rem', backgroundColor: '#d97706', borderColor: '#b45309' }}
-                          onClick={() => handleSelectHistoryAttempt(t.latest_attempt_id, true, t.id)}
-                        >
-                          Resume Test &rarr;
-                        </button>
-                      ) : (!t.is_unlocked && !t.is_free && t.access_type !== 'free') ? (
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          style={{
-                            width: '100%',
-                            padding: '0.55rem',
-                            fontSize: '0.85rem',
-                            backgroundColor: '#16a34a',
-                            borderColor: '#15803d',
-                            fontWeight: 700,
-                            boxShadow: '0 2px 6px rgba(22, 163, 74, 0.25)',
-                          }}
-                          onClick={() => handleNavigateToPurchase(selectedSubject.id, t.id)}
-                        >
-                          Unlock Series (₹499) 🔒 &rarr;
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn btn-primary"
-                          disabled={!hasQuestions}
-                          style={{ width: '100%', padding: '0.5rem', fontSize: '0.85rem' }}
-                          onClick={() => handleOpenInstructions(t.id)}
-                        >
-                          {hasQuestions ? 'Start Test \u2192' : 'Questions Pending'}
-                        </button>
-                      )}
-                    </div>
-
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+      {activeSection === 'result' && activeResultAttemptId && (
+        <StudentTestResult
+          attemptId={activeResultAttemptId}
+          onBackToDashboard={() => setActiveSection('dashboard')}
+          onViewHistory={() => setActiveSection('results')}
+        />
       )}
     </div>
   );

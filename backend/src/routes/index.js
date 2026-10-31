@@ -7,7 +7,6 @@ import chapterRoutes from './chapterRoutes.js';
 import testRoutes from './testRoutes.js';
 import studentRoutes from './studentRoutes.js';
 import publicRoutes from './publicRoutes.js';
-import paymentRoutes from './paymentRoutes.js';
 
 const router = Router();
 
@@ -26,9 +25,6 @@ router.use('/subjects', subjectRoutes);
 router.use('/chapters', chapterRoutes);
 router.use('/tests', testRoutes);
 
-// Mount payment and subject package routes at /api/payments
-router.use('/payments', paymentRoutes);
-
 // Mount student examination portal routes at /api/student
 router.use('/student', studentRoutes);
 
@@ -36,4 +32,3 @@ router.use('/student', studentRoutes);
 router.use('/admin', adminRoutes);
 
 export default router;
-

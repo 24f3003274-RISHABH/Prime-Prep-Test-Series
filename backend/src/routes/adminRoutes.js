@@ -1,12 +1,10 @@
 import { Router } from 'express';
 import * as adminController from '../controllers/adminController.js';
 import * as questionController from '../controllers/questionController.js';
-import * as paymentController from '../controllers/paymentController.js';
 import { uploadExcel } from '../middleware/upload.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 
 const router = Router();
-
 
 // Strictly guard all administrative endpoints
 router.use(requireAuth);
@@ -37,9 +35,7 @@ router.patch('/chapters/:id', adminController.updateChapter);
 router.patch('/chapters/:id/status', adminController.updateChapterStatus);
 router.delete('/chapters/:id', adminController.deleteChapter);
 
-// 5. Test-series & mock tests management (Subject & Category level)
-router.get('/subjects/:subjectId/tests', adminController.getTestsBySubject);
-router.post('/subjects/:subjectId/tests', adminController.createSubjectTest);
+// 5. Test-series & mock tests management
 router.get('/chapters/:chapterId/tests', adminController.getTestsByChapter);
 router.get('/tests/:id', adminController.getTest);
 router.post('/chapters/:chapterId/tests', adminController.createTest);
@@ -52,29 +48,9 @@ router.delete('/tests/:id', adminController.deleteTest);
 router.get('/chapters/:chapterId/settings', adminController.getChapterSettings);
 router.put('/chapters/:chapterId/settings', adminController.updateChapterSettings);
 
-// 7. Bulk Question Upload & Question Management (Phase 5 & 6)
+// 7. Bulk Question Upload & Question Management (Phase 6)
 router.post('/questions/import/preview', uploadExcel.single('file'), questionController.previewQuestionImport);
 router.post('/questions/import/confirm', questionController.confirmQuestionImport);
 router.get('/tests/:testId/questions', questionController.getTestQuestions);
-router.post('/tests/:testId/questions/reorder', questionController.reorderTestQuestions);
-
-// 8. Global Question Bank CRUD
-router.get('/questions', questionController.listQuestions);
-router.get('/questions/:id', questionController.getQuestion);
-router.put('/questions/:id', questionController.updateQuestion);
-router.delete('/questions/:id', questionController.deleteQuestion);
-
-// 9. Subject Packages, Pricing & Access Control
-router.get('/packages', paymentController.listPackages);
-router.put('/packages/:subjectId', paymentController.adminUpdatePackage);
-
-
-// 10. Global Free Tests Configuration (1 Sectional, 1 PYQ)
-router.get('/free-tests', paymentController.adminGetFreeTests);
-router.put('/free-tests', paymentController.adminSetFreeTest);
-
-// 11. Payment Analytics & Student Transactions
-router.get('/payments/analytics', paymentController.adminGetPaymentAnalytics);
 
 export default router;
-
