@@ -3,10 +3,12 @@ import { useAuth } from '../context/AuthContext.jsx';
 import { checkAdminPrivileges } from '../api/client.js';
 import AdminBulkQuestionUpload from './AdminBulkQuestionUpload.jsx';
 import AdminHierarchyManager from './AdminHierarchyManager.jsx';
+import AdminQuestionBank from './AdminQuestionBank.jsx';
+import AdminPricingManager from './AdminPricingManager.jsx';
 
 export default function AdminDashboard() {
   const { user, logout } = useAuth();
-  const [activeAdminTab, setActiveAdminTab] = useState('upload'); // 'upload' | 'hierarchy' | 'security'
+  const [activeAdminTab, setActiveAdminTab] = useState('pricing'); // 'pricing' | 'hierarchy' | 'upload' | 'questions' | 'security'
   const [adminCheckResult, setAdminCheckResult] = useState(null);
   const [verifying, setVerifying] = useState(false);
 
@@ -37,7 +39,21 @@ export default function AdminDashboard() {
         </div>
 
         {/* Admin Navigation Tabs */}
-        <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--color-border)', marginTop: '0.75rem', paddingBottom: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', borderBottom: '1px solid var(--color-border)', marginTop: '0.75rem', paddingBottom: '0.5rem', flexWrap: 'wrap' }}>
+          <button
+            className={`btn ${activeAdminTab === 'pricing' ? 'btn-primary' : 'btn-outline'}`}
+            style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}
+            onClick={() => setActiveAdminTab('pricing')}
+          >
+            💳 Pricing &amp; Free Tests
+          </button>
+          <button
+            className={`btn ${activeAdminTab === 'hierarchy' ? 'btn-primary' : 'btn-outline'}`}
+            style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}
+            onClick={() => setActiveAdminTab('hierarchy')}
+          >
+            Test Series Structure (Subjects & Categories)
+          </button>
           <button
             className={`btn ${activeAdminTab === 'upload' ? 'btn-primary' : 'btn-outline'}`}
             style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}
@@ -46,29 +62,36 @@ export default function AdminDashboard() {
             Bulk Question Upload (Excel / CSV)
           </button>
           <button
-            className={`btn ${activeAdminTab === 'hierarchy' ? 'btn-primary' : 'btn-outline'}`}
+            className={`btn ${activeAdminTab === 'questions' ? 'btn-primary' : 'btn-outline'}`}
             style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}
-            onClick={() => setActiveAdminTab('hierarchy')}
+            onClick={() => setActiveAdminTab('questions')}
           >
-            Academic Structure (Subjects, Chapters & Tests)
+            Question Bank & Editor
           </button>
           <button
             className={`btn ${activeAdminTab === 'security' ? 'btn-primary' : 'btn-outline'}`}
             style={{ fontSize: '0.85rem', padding: '0.4rem 0.85rem' }}
             onClick={() => setActiveAdminTab('security')}
           >
-            Admin Security & Account Scope
+            Admin Security & Roles
           </button>
         </div>
       </div>
 
-      {/* Tab 1: Bulk Question Upload Engine */}
-      {activeAdminTab === 'upload' && <AdminBulkQuestionUpload />}
+      {/* Tab 0: Subject Pricing, Free Tests & Revenue Analytics */}
+      {activeAdminTab === 'pricing' && <AdminPricingManager />}
 
-      {/* Tab 2: Academic Hierarchy Management */}
+      {/* Tab 1: Academic Hierarchy / Test Series Management */}
       {activeAdminTab === 'hierarchy' && <AdminHierarchyManager />}
 
-      {/* Tab 2: Security & Verification */}
+
+      {/* Tab 2: Bulk Question Upload Engine */}
+      {activeAdminTab === 'upload' && <AdminBulkQuestionUpload />}
+
+      {/* Tab 3: Question Bank & Individual Question Editor */}
+      {activeAdminTab === 'questions' && <AdminQuestionBank />}
+
+      {/* Tab 4: Security & Verification */}
       {activeAdminTab === 'security' && (
         <div className="card">
           <div className="card-header">

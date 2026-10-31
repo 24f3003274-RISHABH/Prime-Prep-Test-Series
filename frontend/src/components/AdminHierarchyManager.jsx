@@ -5,37 +5,29 @@ import {
   updateSubject,
   updateSubjectStatus,
   deleteSubject,
-  getChaptersBySubject,
-  createChapter,
-  updateChapter,
-  updateChapterStatus,
-  deleteChapter,
-  getTestsByChapter,
-  createTest,
+  getAdminSubjectTests,
+  createAdminSubjectTest,
   updateTest,
   updateTestStatus,
   deleteTest,
   getTestQuestions,
 } from '../api/client.js';
 
-const CATEGORY_LIMITS = {
-  sectional: 15,
-  full_length: 10,
-  pyq: 5,
-};
+const TEST_CATEGORIES = [
+  { id: 'sectional', label: 'Sectional Tests', badge: 'Targeted Units', defaultDuration: 30, desc: 'Topic-focused practice tests' },
+  { id: 'full_length', label: 'Full-Length Tests', badge: 'NTA Exam Mock', defaultDuration: 105, desc: 'Comprehensive full-syllabus examination mocks' },
+  { id: 'pyq', label: 'Previous Year Question (PYQ) Tests', badge: 'Past Papers', defaultDuration: 105, desc: 'Official previous year question papers' },
+];
 
 export default function AdminHierarchyManager() {
-  // Navigation / Selection State
+  // Navigation / Selection State: Level 1 (Subject) -> Level 2 (Category) -> Level 3 (Tests)
   const [subjects, setSubjects] = useState([]);
   const [selectedSubject, setSelectedSubject] = useState(null);
-  const [chapters, setChapters] = useState([]);
-  const [selectedChapter, setSelectedChapter] = useState(null);
+  const [selectedCategory, setSelectedCategory] = useState('sectional');
   const [tests, setTests] = useState([]);
-  const [testCategoryFilter, setTestCategoryFilter] = useState('ALL');
 
   // Loading & Feedback
   const [loadingSubjects, setLoadingSubjects] = useState(false);
-  const [loadingChapters, setLoadingChapters] = useState(false);
   const [loadingTests, setLoadingTests] = useState(false);
   const [feedback, setFeedback] = useState({ message: '', type: '' });
 
@@ -44,21 +36,17 @@ export default function AdminHierarchyManager() {
   const [editingSubject, setEditingSubject] = useState(null);
   const [subjectForm, setSubjectForm] = useState({ name: '', slug: '', paperCode: '', description: '', displayOrder: 0 });
 
-  // Creation & Editing States for Chapters
-  const [showAddChapter, setShowAddChapter] = useState(false);
-  const [editingChapter, setEditingChapter] = useState(null);
-  const [chapterForm, setChapterForm] = useState({ name: '', description: '', displayOrder: 1 });
-
   // Creation & Editing States for Tests
   const [showAddTest, setShowAddTest] = useState(false);
   const [editingTest, setEditingTest] = useState(null);
   const [testForm, setTestForm] = useState({
     title: '',
     testType: 'sectional',
-    testNumber: 1,
-    durationMinutes: 45,
+    testNumber: '',
+    durationMinutes: 30,
     positiveMarks: 4,
     negativeMarks: 1,
+    accessType: 'paid',
     description: '',
     maxAttempts: 1,
   });
@@ -77,11 +65,11 @@ export default function AdminHierarchyManager() {
 
   const showMsg = (message, type = 'success') => {
     setFeedback({ message, type });
-    setTimeout(() => setFeedback({ message: '', type: '' }), 6000);
+    setTimeout(() => setFeedback({ message: '', type: '' }), 5000);
   };
 
   // ==========================================
-  // 1. SUBJECTS MANAGEMENT
+  // 1. SUBJECTS (LEVEL 1)
   // ==========================================
   const loadSubjects = async () => {
     setLoadingSubjects(true);
@@ -100,19 +88,28 @@ export default function AdminHierarchyManager() {
 
   const handleSelectSubject = async (subj) => {
     setSelectedSubject(subj);
-    setSelectedChapter(null);
-    setTests([]);
-    setLoadingChapters(true);
+    loadTestsForSubject(subj.id, selectedCategory);
+  };
+
+  const handleSelectCategory = (catId) => {
+    setSelectedCategory(catId);
+    if (selectedSubject) {
+      loadTestsForSubject(selectedSubject.id, catId);
+    }
+  };
+
+  // ==========================================
+  // 2. TESTS (LEVEL 3)
+  // ==========================================
+  const loadTestsForSubject = async (subjectId, category) => {
+    setLoadingTests(true);
     try {
-      const data = await getChaptersBySubject(subj.id);
-      setChapters(data || []);
-      if (data && data.length > 0) {
-        handleSelectChapter(data[0]);
-      }
+      const data = await getAdminSubjectTests(subjectId, category);
+      setTests(data || []);
     } catch (err) {
-      showMsg(err.message || 'Failed to load chapters', 'error');
+      showMsg(err.message || 'Failed to load tests for subject', 'error');
     } finally {
-      setLoadingChapters(false);
+      setLoadingTests(false);
     }
   };
 
@@ -185,7 +182,6 @@ export default function AdminHierarchyManager() {
       showMsg('Subject deleted successfully.');
       setDeleteConfirmation(null);
       setSelectedSubject(null);
-      setSelectedChapter(null);
       setTests([]);
       loadSubjects();
     } catch (err) {
@@ -194,141 +190,47 @@ export default function AdminHierarchyManager() {
     }
   };
 
-  // ==========================================
-  // 2. CHAPTERS MANAGEMENT
-  // ==========================================
-  const handleSelectChapter = async (chap) => {
-    setSelectedChapter(chap);
-    setLoadingTests(true);
-    try {
-      const data = await getTestsByChapter(chap.id);
-      setTests(data || []);
-    } catch (err) {
-      showMsg(err.message || 'Failed to load tests', 'error');
-    } finally {
-      setLoadingTests(false);
-    }
-  };
-
-  const handleCreateChapter = async (e) => {
-    e.preventDefault();
-    if (!selectedSubject || !chapterForm.name.trim()) return;
-    try {
-      const newChap = await createChapter(selectedSubject.id, {
-        name: chapterForm.name.trim(),
-        description: chapterForm.description.trim() || undefined,
-        displayOrder: parseInt(chapterForm.displayOrder, 10) || 1,
-        publicationStatus: 'published',
-      });
-      showMsg(`Chapter "${newChap.name}" created under ${selectedSubject.name}!`);
-      setShowAddChapter(false);
-      setChapterForm({ name: '', description: '', displayOrder: chapters.length + 1 });
-      const refreshed = await getChaptersBySubject(selectedSubject.id);
-      setChapters(refreshed || []);
-      handleSelectChapter(newChap);
-    } catch (err) {
-      showMsg(err.message || 'Failed to create chapter', 'error');
-    }
-  };
-
-  const startEditChapter = (chap) => {
-    setEditingChapter(chap);
-    setChapterForm({
-      name: chap.name || chap.title || '',
-      description: chap.description || '',
-      displayOrder: chap.display_order || 1,
+  // Test Actions
+  const handleOpenAddTest = () => {
+    const defaultDuration = selectedCategory === 'sectional' ? 30 : 105;
+    const catLabel = TEST_CATEGORIES.find((c) => c.id === selectedCategory)?.label || 'Test';
+    const nextNumber = tests.length + 1;
+    setTestForm({
+      title: `${selectedSubject ? selectedSubject.name : ''} ${catLabel.replace(' Tests', '')} 0${nextNumber}`,
+      testType: selectedCategory,
+      testNumber: nextNumber,
+      durationMinutes: defaultDuration,
+      positiveMarks: 4,
+      negativeMarks: 1,
+      accessType: 'paid',
+      description: '',
+      maxAttempts: 1,
     });
+    setShowAddTest(true);
   };
 
-  const handleUpdateChapter = async (e) => {
-    e.preventDefault();
-    if (!editingChapter || !chapterForm.name.trim()) return;
-    try {
-      await updateChapter(editingChapter.id, {
-        name: chapterForm.name.trim(),
-        description: chapterForm.description.trim() || undefined,
-        displayOrder: parseInt(chapterForm.displayOrder, 10) || 1,
-      });
-      showMsg(`Chapter "${chapterForm.name}" updated successfully!`);
-      setEditingChapter(null);
-      const refreshed = await getChaptersBySubject(selectedSubject.id);
-      setChapters(refreshed || []);
-    } catch (err) {
-      showMsg(err.message || 'Failed to update chapter', 'error');
-    }
-  };
-
-  const handleToggleChapterStatus = async (chap) => {
-    const nextStatus = chap.publication_status === 'published' ? 'draft' : 'published';
-    try {
-      await updateChapterStatus(chap.id, nextStatus);
-      showMsg(`Chapter "${chap.name || chap.title}" status updated to ${nextStatus}.`);
-      const refreshed = await getChaptersBySubject(selectedSubject.id);
-      setChapters(refreshed || []);
-    } catch (err) {
-      showMsg(err.message || 'Failed to update chapter status', 'error');
-    }
-  };
-
-  const handleDeleteChapter = async (chapId) => {
-    try {
-      await deleteChapter(chapId);
-      showMsg('Chapter deleted successfully.');
-      setDeleteConfirmation(null);
-      setSelectedChapter(null);
-      setTests([]);
-      if (selectedSubject) {
-        const refreshed = await getChaptersBySubject(selectedSubject.id);
-        setChapters(refreshed || []);
-      }
-    } catch (err) {
-      showMsg(err.message || 'Failed to delete chapter', 'error');
-      setDeleteConfirmation(null);
-    }
-  };
-
-  // ==========================================
-  // 3. TESTS MANAGEMENT
-  // ==========================================
   const handleCreateTest = async (e) => {
     e.preventDefault();
-    if (!selectedChapter || !testForm.title.trim()) return;
-
-    // Validate limit for category
-    const cat = testForm.testType;
-    const maxLimit = CATEGORY_LIMITS[cat] || 15;
-    const num = parseInt(testForm.testNumber, 10);
-    if (num < 1 || num > maxLimit) {
-      showMsg(`Test number for ${cat.replace('_', ' ')} must be between 1 and ${maxLimit}.`, 'error');
-      return;
-    }
+    if (!selectedSubject || !testForm.title.trim()) return;
 
     try {
-      const newTest = await createTest(selectedChapter.id, {
+      const payload = {
         title: testForm.title.trim(),
-        testType: testForm.testType,
-        testNumber: num,
-        durationMinutes: parseInt(testForm.durationMinutes, 10) || 45,
+        testType: testForm.testType || selectedCategory,
+        testNumber: testForm.testNumber ? parseInt(testForm.testNumber, 10) : undefined,
+        durationMinutes: parseInt(testForm.durationMinutes, 10) || 30,
         positiveMarks: parseFloat(testForm.positiveMarks) || 4.0,
         negativeMarks: parseFloat(testForm.negativeMarks) || 1.0,
+        accessType: testForm.accessType || 'paid',
         description: testForm.description.trim() || undefined,
         maxAttempts: parseInt(testForm.maxAttempts, 10) || 1,
         publicationStatus: 'draft',
-      });
-      showMsg(`Test "${newTest.title}" created in draft status! Add questions before publishing.`);
+      };
+
+      const newTest = await createAdminSubjectTest(selectedSubject.id, payload);
+      showMsg(`Test "${newTest.title}" created successfully as draft.`);
       setShowAddTest(false);
-      setTestForm({
-        title: '',
-        testType: 'sectional',
-        testNumber: 1,
-        durationMinutes: 45,
-        positiveMarks: 4,
-        negativeMarks: 1,
-        description: '',
-        maxAttempts: 1,
-      });
-      const refreshed = await getTestsByChapter(selectedChapter.id);
-      setTests(refreshed || []);
+      loadTestsForSubject(selectedSubject.id, selectedCategory);
     } catch (err) {
       showMsg(err.message || 'Failed to create test', 'error');
     }
@@ -340,9 +242,10 @@ export default function AdminHierarchyManager() {
       title: testItem.title,
       testType: testItem.test_type,
       testNumber: testItem.test_number || 1,
-      durationMinutes: testItem.duration_minutes || 45,
+      durationMinutes: testItem.duration_minutes || 30,
       positiveMarks: testItem.positive_marks || 4,
       negativeMarks: testItem.negative_marks || 1,
+      accessType: testItem.access_type || 'paid',
       description: testItem.description || '',
       maxAttempts: testItem.max_attempts || 1,
     });
@@ -352,29 +255,24 @@ export default function AdminHierarchyManager() {
     e.preventDefault();
     if (!editingTest || !testForm.title.trim()) return;
 
-    const cat = testForm.testType;
-    const maxLimit = CATEGORY_LIMITS[cat] || 15;
-    const num = parseInt(testForm.testNumber, 10);
-    if (num < 1 || num > maxLimit) {
-      showMsg(`Test number for ${cat.replace('_', ' ')} must be between 1 and ${maxLimit}.`, 'error');
-      return;
-    }
-
     try {
       await updateTest(editingTest.id, {
         title: testForm.title.trim(),
         testType: testForm.testType,
-        testNumber: num,
-        durationMinutes: parseInt(testForm.durationMinutes, 10) || 45,
+        testNumber: parseInt(testForm.testNumber, 10) || 1,
+        durationMinutes: parseInt(testForm.durationMinutes, 10) || 30,
         positiveMarks: parseFloat(testForm.positiveMarks) || 4.0,
         negativeMarks: parseFloat(testForm.negativeMarks) || 1.0,
+        accessType: testForm.accessType,
         description: testForm.description.trim() || undefined,
         maxAttempts: parseInt(testForm.maxAttempts, 10) || 1,
       });
-      showMsg(`Test "${testForm.title}" updated successfully!`);
+
+      showMsg(`Test "${testForm.title}" updated successfully.`);
       setEditingTest(null);
-      const refreshed = await getTestsByChapter(selectedChapter.id);
-      setTests(refreshed || []);
+      if (selectedSubject) {
+        loadTestsForSubject(selectedSubject.id, selectedCategory);
+      }
     } catch (err) {
       showMsg(err.message || 'Failed to update test', 'error');
     }
@@ -384,16 +282,18 @@ export default function AdminHierarchyManager() {
     const isCurrentlyPublished = testItem.publication_status === 'published' || testItem.is_published;
     const nextStatus = isCurrentlyPublished ? 'draft' : 'published';
 
-    if (nextStatus === 'published' && (!testItem.question_count || testItem.question_count === 0)) {
-      showMsg('Cannot publish a test with zero questions. Please upload questions first.', 'error');
+    // Guard: Prevent publishing if test has zero questions
+    if (nextStatus === 'published' && (!testItem.question_count || parseInt(testItem.question_count, 10) === 0)) {
+      showMsg(`Cannot publish test "${testItem.title}": It has 0 questions. Please import or add questions first.`, 'error');
       return;
     }
 
     try {
       await updateTestStatus(testItem.id, nextStatus);
-      showMsg(`Test "${testItem.title}" updated to ${nextStatus}.`);
-      const refreshed = await getTestsByChapter(selectedChapter.id);
-      setTests(refreshed || []);
+      showMsg(`Test "${testItem.title}" publication status updated to ${nextStatus}.`);
+      if (selectedSubject) {
+        loadTestsForSubject(selectedSubject.id, selectedCategory);
+      }
     } catch (err) {
       showMsg(err.message || 'Failed to update test status', 'error');
     }
@@ -404,9 +304,8 @@ export default function AdminHierarchyManager() {
       await deleteTest(testId);
       showMsg('Test deleted successfully.');
       setDeleteConfirmation(null);
-      if (selectedChapter) {
-        const refreshed = await getTestsByChapter(selectedChapter.id);
-        setTests(refreshed || []);
+      if (selectedSubject) {
+        loadTestsForSubject(selectedSubject.id, selectedCategory);
       }
     } catch (err) {
       showMsg(err.message || 'Failed to delete test', 'error');
@@ -414,116 +313,417 @@ export default function AdminHierarchyManager() {
     }
   };
 
-  // Preview test questions modal
-  const handleOpenPreview = async (testItem) => {
+  const handlePreviewTest = async (testItem) => {
     setPreviewTest(testItem);
     setLoadingPreview(true);
-    setPreviewQuestions([]);
     try {
-      const data = await getTestQuestions(testItem.id);
-      setPreviewQuestions(data?.questions || []);
+      const questions = await getTestQuestions(testItem.id);
+      setPreviewQuestions(questions || []);
     } catch (err) {
       showMsg(err.message || 'Failed to load test questions', 'error');
+      setPreviewQuestions([]);
     } finally {
       setLoadingPreview(false);
     }
   };
 
-  // Category counts and capacity
-  const sectionalCount = tests.filter((t) => t.test_type === 'sectional').length;
-  const fullLengthCount = tests.filter((t) => t.test_type === 'full_length').length;
-  const pyqCount = tests.filter((t) => t.test_type === 'pyq').length;
-
-  const filteredTests = tests.filter((t) => {
-    if (testCategoryFilter === 'ALL') return true;
-    return t.test_type === testCategoryFilter;
-  });
-
   return (
-    <div style={{ marginTop: '1.5rem' }}>
-      {/* Feedback banner */}
+    <div>
+      {/* Toast Feedback */}
       {feedback.message && (
         <div
+          className={`status-pill ${feedback.type === 'error' ? 'status-error' : 'status-success'}`}
           style={{
-            padding: '0.75rem 1rem',
+            display: 'block',
+            padding: '0.85rem 1.25rem',
+            marginBottom: '1.25rem',
             borderRadius: 'var(--radius)',
-            marginBottom: '1rem',
-            backgroundColor: feedback.type === 'error' ? '#fef2f2' : '#f0fdf4',
-            color: feedback.type === 'error' ? '#991b1b' : '#166534',
-            border: `1px solid ${feedback.type === 'error' ? '#f87171' : '#86efac'}`,
             fontSize: '0.9rem',
+            fontWeight: 600,
           }}
         >
           {feedback.message}
         </div>
       )}
 
-      {/* 3-Column Academic Structure Management Grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.35fr', gap: '1.25rem' }}>
-        
-        {/* ==========================================
-            COLUMN 1: SUBJECTS
-           ========================================== */}
-        <div className="card" style={{ margin: 0 }}>
-          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h3 className="card-title" style={{ fontSize: '1.05rem', margin: 0 }}>1. Subjects</h3>
-              <p className="card-subtitle" style={{ fontSize: '0.8rem' }}>{subjects.length} registered</p>
+      {/* Header Breadcrumb & Status */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+        <div>
+          <h2 style={{ fontSize: '1.4rem', fontWeight: 800, margin: 0, color: 'var(--color-primary)' }}>
+            CUET PG Test Series Structure
+          </h2>
+          <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0.2rem 0 0 0' }}>
+            Direct 3-level academic organization: <strong>Subject &rsaquo; Category &rsaquo; Individual Tests</strong>
+          </p>
+        </div>
+
+        <button
+          type="button"
+          className="btn btn-outline"
+          style={{ fontSize: '0.85rem' }}
+          onClick={() => setShowAddSubject(true)}
+        >
+          + Add New Subject
+        </button>
+      </div>
+
+      {/* ======================================================== */}
+      {/* LEVEL 1: SUBJECT SELECTION BAR */}
+      {/* ======================================================== */}
+      <div className="card" style={{ padding: '1rem', marginBottom: '1.5rem', backgroundColor: '#f8fafc' }}>
+        <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: '0.65rem' }}>
+          Level 1 &bull; Select Master Subject ({subjects.length} Disciplines)
+        </div>
+
+        {loadingSubjects ? (
+          <div style={{ padding: '1rem', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Loading subjects...</div>
+        ) : (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            {subjects.map((s) => {
+              const isSelected = selectedSubject?.id === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => handleSelectSubject(s)}
+                  style={{
+                    padding: '0.5rem 0.9rem',
+                    borderRadius: '6px',
+                    border: isSelected ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
+                    backgroundColor: isSelected ? 'var(--color-primary)' : '#ffffff',
+                    color: isSelected ? '#ffffff' : 'var(--color-text)',
+                    fontWeight: isSelected ? 700 : 500,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <span>{s.name}</span>
+                  {s.paper_code && (
+                    <span
+                      style={{
+                        fontSize: '0.7rem',
+                        backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : '#eff6ff',
+                        color: isSelected ? '#ffffff' : 'var(--color-primary)',
+                        padding: '0.1rem 0.35rem',
+                        borderRadius: '3px',
+                      }}
+                    >
+                      {s.paper_code}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Selected Subject Action Banner */}
+      {selectedSubject && (
+        <div
+          className="card"
+          style={{
+            padding: '1rem 1.25rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+            borderLeft: '4px solid var(--color-primary)',
+          }}
+        >
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>
+                {selectedSubject.name}
+              </h3>
+              <span className="status-pill status-primary" style={{ fontSize: '0.725rem' }}>
+                {selectedSubject.paper_code || 'CUET PG'}
+              </span>
+              <span
+                className={`status-pill ${selectedSubject.publication_status === 'published' ? 'status-success' : 'status-warning'}`}
+                style={{ fontSize: '0.7rem' }}
+              >
+                {selectedSubject.publication_status?.toUpperCase() || 'PUBLISHED'}
+              </span>
             </div>
-            <button
-              className="btn btn-primary"
-              style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
-              onClick={() => {
-                setShowAddSubject(!showAddSubject);
-                setEditingSubject(null);
-              }}
-            >
-              {showAddSubject ? 'Cancel' : '+ New Subject'}
-            </button>
+            {selectedSubject.description && (
+              <p style={{ fontSize: '0.825rem', color: 'var(--color-text-muted)', margin: '0.25rem 0 0 0' }}>
+                {selectedSubject.description}
+              </p>
+            )}
           </div>
 
-          {/* New / Edit Subject Form */}
-          {(showAddSubject || editingSubject) && (
-            <form
-              onSubmit={editingSubject ? handleUpdateSubject : handleCreateSubject}
-              style={{ backgroundColor: '#f8fafc', padding: '0.75rem', borderRadius: '4px', marginBottom: '0.75rem', border: '1px solid var(--color-border)' }}
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+              onClick={() => startEditSubject(selectedSubject)}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <strong style={{ fontSize: '0.85rem' }}>{editingSubject ? 'Edit Subject' : 'Create New Subject'}</strong>
-                {editingSubject && (
-                  <button
-                    type="button"
-                    onClick={() => setEditingSubject(null)}
-                    style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '0.8rem', cursor: 'pointer' }}
-                  >
-                    Cancel
-                  </button>
-                )}
+              Edit Subject
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline"
+              style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+              onClick={() => handleToggleSubjectStatus(selectedSubject)}
+            >
+              {selectedSubject.publication_status === 'published' ? 'Unpublish' : 'Publish'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* LEVEL 2: 3 TEST CATEGORIES SELECTION */}
+      {/* ======================================================== */}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', marginBottom: '0.65rem' }}>
+          Level 2 &bull; Select Test Category
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '1rem' }}>
+          {TEST_CATEGORIES.map((cat) => {
+            const isSelected = selectedCategory === cat.id;
+            return (
+              <div
+                key={cat.id}
+                onClick={() => handleSelectCategory(cat.id)}
+                style={{
+                  cursor: 'pointer',
+                  padding: '1.15rem',
+                  borderRadius: 'var(--radius)',
+                  border: isSelected ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
+                  backgroundColor: isSelected ? '#f0f7ff' : '#ffffff',
+                  boxShadow: isSelected ? '0 4px 12px -2px rgba(37,99,235,0.15)' : 'none',
+                  transition: 'all 0.15s ease',
+                  position: 'relative',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                  <span className="status-pill status-primary" style={{ fontSize: '0.7rem' }}>
+                    {cat.badge}
+                  </span>
+                  {isSelected && (
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-primary)' }}>
+                      Active Selection ✓
+                    </span>
+                  )}
+                </div>
+
+                <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 0.35rem 0', color: isSelected ? 'var(--color-primary)' : 'var(--color-text)' }}>
+                  {cat.label}
+                </h4>
+
+                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', margin: 0, lineHeight: 1.4 }}>
+                  {cat.desc}
+                </p>
               </div>
-              <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Subject Name *</label>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ======================================================== */}
+      {/* LEVEL 3: INDIVIDUAL TESTS TABLE */}
+      {/* ======================================================== */}
+      <div className="card" style={{ padding: '1.25rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <div>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>
+              Level 3 &bull; Tests List
+            </div>
+            <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: '0.2rem 0 0 0' }}>
+              {selectedSubject?.name || 'Subject'} &rsaquo; {TEST_CATEGORIES.find((c) => c.id === selectedCategory)?.label}
+            </h3>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{ fontSize: '0.85rem' }}
+            onClick={handleOpenAddTest}
+            disabled={!selectedSubject}
+          >
+            + Create New Test
+          </button>
+        </div>
+
+        {loadingTests ? (
+          <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+            Loading tests from PostgreSQL...
+          </div>
+        ) : tests.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '3rem', backgroundColor: '#f8fafc', borderRadius: 'var(--radius)' }}>
+            <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📝</div>
+            <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: '0 0 0.4rem 0' }}>
+              No tests created yet in this category
+            </h4>
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', margin: '0 0 1.25rem 0' }}>
+              Create your first test or use Bulk Upload to import questions into this category.
+            </p>
+            <button type="button" className="btn btn-primary" onClick={handleOpenAddTest}>
+              + Create Test Now
+            </button>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="data-table" style={{ width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: '50px' }}>#</th>
+                  <th>Test Title</th>
+                  <th>Questions</th>
+                  <th>Duration</th>
+                  <th>Marking</th>
+                  <th>Tier</th>
+                  <th>Status</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tests.map((t, idx) => {
+                  const isPub = t.publication_status === 'published' || t.is_published;
+                  const qCount = parseInt(t.question_count, 10) || 0;
+
+                  return (
+                    <tr key={t.id}>
+                      <td style={{ fontWeight: 700, color: 'var(--color-text-muted)' }}>
+                        {t.test_number || idx + 1}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 700, color: 'var(--color-text)' }}>{t.title}</div>
+                        {t.description && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', maxWidth: '280px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {t.description}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        <span style={{ fontWeight: 700 }}>{qCount} Qs</span>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--color-text-muted)' }}>
+                          {(qCount * (parseFloat(t.positive_marks) || 4)).toFixed(0)} marks
+                        </div>
+                      </td>
+                      <td>{t.duration_minutes}m</td>
+                      <td style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: 600 }}>
+                        +{t.positive_marks}/-{t.negative_marks}
+                      </td>
+                      <td>
+                        <span
+                          className={`status-pill ${t.access_type === 'free' ? 'status-success' : 'status-warning'}`}
+                          style={{ fontSize: '0.675rem', textTransform: 'uppercase' }}
+                        >
+                          {t.access_type}
+                        </span>
+                      </td>
+                      <td>
+                        <span
+                          className={`status-pill ${isPub ? 'status-success' : 'status-warning'}`}
+                          style={{ fontSize: '0.675rem', textTransform: 'uppercase' }}
+                        >
+                          {isPub ? 'Published' : 'Draft'}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'inline-flex', gap: '0.35rem' }}>
+                          <button
+                            type="button"
+                            className="btn btn-outline"
+                            style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem' }}
+                            onClick={() => handlePreviewTest(t)}
+                            title="Preview Questions"
+                          >
+                            👁️ Questions ({qCount})
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline"
+                            style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem' }}
+                            onClick={() => startEditTest(t)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn ${isPub ? 'btn-outline' : 'btn-primary'}`}
+                            style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem' }}
+                            onClick={() => handleToggleTestStatus(t)}
+                          >
+                            {isPub ? 'Draft' : 'Publish'}
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-outline"
+                            style={{ fontSize: '0.75rem', padding: '0.25rem 0.55rem', color: '#dc2626', borderColor: '#fca5a5' }}
+                            onClick={() => setDeleteConfirmation({ type: 'test', id: t.id, title: t.title })}
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ======================================================== */}
+      {/* MODAL: CREATE / EDIT SUBJECT */}
+      {/* ======================================================== */}
+      {(showAddSubject || editingSubject) && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem',
+          }}
+        >
+          <div className="card" style={{ maxWidth: '500px', width: '100%', margin: 0 }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '1rem' }}>
+              {editingSubject ? `Edit Subject: ${editingSubject.name}` : 'Add New Subject'}
+            </h3>
+
+            <form onSubmit={editingSubject ? handleUpdateSubject : handleCreateSubject}>
+              <div className="form-group">
+                <label className="form-label">Subject Name *</label>
                 <input
                   type="text"
                   className="form-input"
+                  required
                   placeholder="e.g. Political Science"
                   value={subjectForm.name}
                   onChange={(e) => setSubjectForm({ ...subjectForm, name: e.target.value })}
-                  required
                 />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Paper Code (Unique)</label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                <div className="form-group">
+                  <label className="form-label">CUET Paper Code</label>
                   <input
                     type="text"
                     className="form-input"
                     placeholder="e.g. HUQP18"
                     value={subjectForm.paperCode}
-                    onChange={(e) => setSubjectForm({ ...subjectForm, paperCode: e.target.value.toUpperCase() })}
+                    onChange={(e) => setSubjectForm({ ...subjectForm, paperCode: e.target.value })}
                   />
                 </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Display Order</label>
+                <div className="form-group">
+                  <label className="form-label">Display Order</label>
                   <input
                     type="number"
                     className="form-input"
@@ -532,343 +732,115 @@ export default function AdminHierarchyManager() {
                   />
                 </div>
               </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', fontSize: '0.8rem', padding: '0.35rem' }}>
-                {editingSubject ? 'Save Changes' : 'Create Subject'}
-              </button>
-            </form>
-          )}
 
-          {/* Subjects List */}
-          {loadingSubjects ? (
-            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>Loading subjects...</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '550px', overflowY: 'auto' }}>
-              {subjects.map((sub) => {
-                const isSelected = selectedSubject?.id === sub.id;
-                return (
-                  <div
-                    key={sub.id}
-                    onClick={() => handleSelectSubject(sub)}
-                    style={{
-                      padding: '0.6rem 0.75rem',
-                      borderRadius: 'var(--radius)',
-                      border: isSelected ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-                      backgroundColor: isSelected ? '#eff6ff' : '#ffffff',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: isSelected ? 'var(--color-primary)' : 'inherit' }}>
-                        {sub.name}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                        {sub.paper_code ? `Code: ${sub.paper_code} | ` : ''}Order #{sub.display_order}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startEditSubject(sub);
-                        }}
-                        className="btn btn-outline"
-                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
-                        title="Edit Subject"
-                      >
-                        ✏️ Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleSubjectStatus(sub);
-                        }}
-                        className={`status-pill ${sub.publication_status === 'published' ? 'status-success' : 'status-secondary'}`}
-                        style={{ cursor: 'pointer', border: 'none', fontSize: '0.7rem' }}
-                        title="Toggle Publication Status"
-                      >
-                        {sub.publication_status || 'published'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* ==========================================
-            COLUMN 2: CHAPTERS
-           ========================================== */}
-        <div className="card" style={{ margin: 0 }}>
-          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h3 className="card-title" style={{ fontSize: '1.05rem', margin: 0 }}>2. Chapters</h3>
-              <p className="card-subtitle" style={{ fontSize: '0.8rem' }}>
-                {selectedSubject ? `${selectedSubject.name} (${chapters.length})` : 'Select a subject'}
-              </p>
-            </div>
-            {selectedSubject && (
-              <button
-                className="btn btn-primary"
-                style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
-                onClick={() => {
-                  setShowAddChapter(!showAddChapter);
-                  setEditingChapter(null);
-                }}
-              >
-                {showAddChapter ? 'Cancel' : '+ New Chapter'}
-              </button>
-            )}
-          </div>
-
-          {/* New / Edit Chapter Form */}
-          {(showAddChapter || editingChapter) && (
-            <form
-              onSubmit={editingChapter ? handleUpdateChapter : handleCreateChapter}
-              style={{ backgroundColor: '#f8fafc', padding: '0.75rem', borderRadius: '4px', marginBottom: '0.75rem', border: '1px solid var(--color-border)' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <strong style={{ fontSize: '0.85rem' }}>{editingChapter ? 'Edit Chapter' : `Add Chapter under ${selectedSubject?.name}`}</strong>
-                {editingChapter && (
-                  <button
-                    type="button"
-                    onClick={() => setEditingChapter(null)}
-                    style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '0.8rem', cursor: 'pointer' }}
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-              <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Chapter Name *</label>
-                <input
-                  type="text"
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <textarea
                   className="form-input"
-                  placeholder="e.g. Western Political Thought"
-                  value={chapterForm.name}
-                  onChange={(e) => setChapterForm({ ...chapterForm, name: e.target.value })}
-                  required
+                  rows={3}
+                  placeholder="Curriculum overview..."
+                  value={subjectForm.description}
+                  onChange={(e) => setSubjectForm({ ...subjectForm, description: e.target.value })}
                 />
               </div>
-              <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Display Order</label>
-                <input
-                  type="number"
-                  className="form-input"
-                  value={chapterForm.displayOrder}
-                  onChange={(e) => setChapterForm({ ...chapterForm, displayOrder: e.target.value })}
-                />
-              </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', fontSize: '0.8rem', padding: '0.35rem' }}>
-                {editingChapter ? 'Save Changes' : 'Save Chapter'}
-              </button>
-            </form>
-          )}
 
-          {/* Chapters List */}
-          {loadingChapters ? (
-            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>Loading chapters...</p>
-          ) : !selectedSubject ? (
-            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>Choose a subject to view its syllabus chapters.</p>
-          ) : chapters.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
-              No chapters in this subject yet. Click "+ New Chapter" above to create one.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '550px', overflowY: 'auto' }}>
-              {chapters.map((chap) => {
-                const isSelected = selectedChapter?.id === chap.id;
-                return (
-                  <div
-                    key={chap.id}
-                    onClick={() => handleSelectChapter(chap)}
-                    style={{
-                      padding: '0.6rem 0.75rem',
-                      borderRadius: 'var(--radius)',
-                      border: isSelected ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-                      backgroundColor: isSelected ? '#eff6ff' : '#ffffff',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.9rem', color: isSelected ? 'var(--color-primary)' : 'inherit' }}>
-                        {chap.display_order ? `Ch ${chap.display_order}. ` : ''}{chap.name || chap.title}
-                      </div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
-                        {chap.test_count !== undefined ? `${chap.test_count} tests | ` : ''}Order #{chap.display_order}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          startEditChapter(chap);
-                        }}
-                        className="btn btn-outline"
-                        style={{ padding: '0.15rem 0.4rem', fontSize: '0.7rem' }}
-                        title="Edit Chapter"
-                      >
-                        ✏️ Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleChapterStatus(chap);
-                        }}
-                        className={`status-pill ${chap.publication_status === 'published' ? 'status-success' : 'status-secondary'}`}
-                        style={{ cursor: 'pointer', border: 'none', fontSize: '0.7rem' }}
-                        title="Toggle Publication Status"
-                      >
-                        {chap.publication_status || 'published'}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* ==========================================
-            COLUMN 3: TESTS & MOCK PAPERS
-           ========================================== */}
-        <div className="card" style={{ margin: 0 }}>
-          <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h3 className="card-title" style={{ fontSize: '1.05rem', margin: 0 }}>3. Test Series</h3>
-              <p className="card-subtitle" style={{ fontSize: '0.8rem' }}>
-                {selectedChapter ? `${selectedChapter.name || 'Chapter'} (${tests.length})` : 'Select a chapter'}
-              </p>
-            </div>
-            {selectedChapter && (
-              <button
-                className="btn btn-primary"
-                style={{ padding: '0.25rem 0.6rem', fontSize: '0.8rem' }}
-                onClick={() => {
-                  setShowAddTest(!showAddTest);
-                  setEditingTest(null);
-                }}
-              >
-                {showAddTest ? 'Cancel' : '+ New Test'}
-              </button>
-            )}
-          </div>
-
-          {/* Chapter Quota / Platform Capacity Badges */}
-          {selectedChapter && (
-            <div style={{ backgroundColor: '#f8fafc', padding: '0.6rem', borderRadius: '4px', marginBottom: '0.75rem', border: '1px solid var(--color-border)', fontSize: '0.75rem' }}>
-              <div style={{ fontWeight: 600, color: 'var(--color-text)', marginBottom: '0.35rem' }}>
-                Intended Chapter Configuration Quotas:
-              </div>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <span className={`status-pill ${sectionalCount >= 15 ? 'status-warning' : 'status-secondary'}`}>
-                  Sectional: {sectionalCount}/15
-                </span>
-                <span className={`status-pill ${fullLengthCount >= 10 ? 'status-warning' : 'status-secondary'}`}>
-                  Full-Length: {fullLengthCount}/10
-                </span>
-                <span className={`status-pill ${pyqCount >= 5 ? 'status-warning' : 'status-secondary'}`}>
-                  PYQ: {pyqCount}/5
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Category Filter Tabs */}
-          {selectedChapter && (
-            <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
-              {['ALL', 'sectional', 'full_length', 'pyq'].map((cat) => (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.25rem' }}>
                 <button
-                  key={cat}
                   type="button"
-                  onClick={() => setTestCategoryFilter(cat)}
-                  className={`btn ${testCategoryFilter === cat ? 'btn-primary' : 'btn-outline'}`}
-                  style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', textTransform: 'capitalize' }}
+                  className="btn btn-outline"
+                  onClick={() => {
+                    setShowAddSubject(false);
+                    setEditingSubject(null);
+                  }}
                 >
-                  {cat === 'ALL' ? 'All Tests' : cat.replace('_', ' ')}
+                  Cancel
                 </button>
-              ))}
-            </div>
-          )}
-
-          {/* New / Edit Test Form */}
-          {(showAddTest || editingTest) && (
-            <form
-              onSubmit={editingTest ? handleUpdateTest : handleCreateTest}
-              style={{ backgroundColor: '#f8fafc', padding: '0.75rem', borderRadius: '4px', marginBottom: '0.75rem', border: '1px solid var(--color-border)' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                <strong style={{ fontSize: '0.85rem' }}>{editingTest ? 'Edit Test' : 'Create New Test'}</strong>
-                {editingTest && (
-                  <button
-                    type="button"
-                    onClick={() => setEditingTest(null)}
-                    style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '0.8rem', cursor: 'pointer' }}
-                  >
-                    Cancel
-                  </button>
-                )}
+                <button type="submit" className="btn btn-primary">
+                  {editingSubject ? 'Save Changes' : 'Create Subject'}
+                </button>
               </div>
-              <div className="form-group" style={{ marginBottom: '0.5rem' }}>
-                <label className="form-label" style={{ fontSize: '0.75rem' }}>Test Title *</label>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: CREATE / EDIT TEST */}
+      {/* ======================================================== */}
+      {(showAddTest || editingTest) && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '1rem',
+          }}
+        >
+          <div className="card" style={{ maxWidth: '580px', width: '100%', margin: 0, maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '0.4rem' }}>
+              {editingTest ? `Edit Test: ${editingTest.title}` : `Create New ${TEST_CATEGORIES.find((c) => c.id === selectedCategory)?.label}`}
+            </h3>
+            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: '1.25rem' }}>
+              Belongs directly to <strong>{selectedSubject?.name}</strong> under <strong>{TEST_CATEGORIES.find((c) => c.id === (editingTest?.test_type || selectedCategory))?.label}</strong>.
+            </p>
+
+            <form onSubmit={editingTest ? handleUpdateTest : handleCreateTest}>
+              <div className="form-group">
+                <label className="form-label">Test Title *</label>
                 <input
                   type="text"
                   className="form-input"
-                  placeholder="e.g. Sectional Test 2: Core Thinkers"
+                  required
+                  placeholder="e.g. Political Science Sectional Test 01"
                   value={testForm.title}
                   onChange={(e) => setTestForm({ ...testForm, title: e.target.value })}
-                  required
                 />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Category *</label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
+                <div className="form-group">
+                  <label className="form-label">Category</label>
                   <select
                     className="form-input"
                     value={testForm.testType}
                     onChange={(e) => setTestForm({ ...testForm, testType: e.target.value })}
                   >
-                    <option value="sectional">Sectional Test (Max 15)</option>
-                    <option value="full_length">Full-Length Test (Max 10)</option>
-                    <option value="pyq">PYQ Test (Max 5)</option>
+                    <option value="sectional">Sectional Test</option>
+                    <option value="full_length">Full-Length Mock</option>
+                    <option value="pyq">PYQ Test</option>
                   </select>
                 </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Test # (Series)</label>
+
+                <div className="form-group">
+                  <label className="form-label">Test Number</label>
                   <input
                     type="number"
-                    min="1"
-                    max={CATEGORY_LIMITS[testForm.testType] || 15}
                     className="form-input"
+                    min={1}
                     value={testForm.testNumber}
                     onChange={(e) => setTestForm({ ...testForm, testNumber: e.target.value })}
-                    required
                   />
                 </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>Mins</label>
+
+                <div className="form-group">
+                  <label className="form-label">Duration (Mins)</label>
                   <input
                     type="number"
-                    min="1"
                     className="form-input"
+                    min={5}
                     value={testForm.durationMinutes}
                     onChange={(e) => setTestForm({ ...testForm, durationMinutes: e.target.value })}
                   />
                 </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>+ Marks</label>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
+                <div className="form-group">
+                  <label className="form-label">Positive (+)</label>
                   <input
                     type="number"
                     step="0.5"
@@ -877,114 +849,65 @@ export default function AdminHierarchyManager() {
                     onChange={(e) => setTestForm({ ...testForm, positiveMarks: e.target.value })}
                   />
                 </div>
-                <div className="form-group" style={{ margin: 0 }}>
-                  <label className="form-label" style={{ fontSize: '0.75rem' }}>- Marks</label>
+
+                <div className="form-group">
+                  <label className="form-label">Negative (-)</label>
                   <input
                     type="number"
-                    step="0.25"
+                    step="0.5"
                     className="form-input"
                     value={testForm.negativeMarks}
                     onChange={(e) => setTestForm({ ...testForm, negativeMarks: e.target.value })}
                   />
                 </div>
-              </div>
-              <button type="submit" className="btn btn-primary" style={{ width: '100%', fontSize: '0.8rem', padding: '0.35rem' }}>
-                {editingTest ? 'Save Changes' : 'Create Test (Draft)'}
-              </button>
-            </form>
-          )}
 
-          {/* Tests List */}
-          {loadingTests ? (
-            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>Loading tests...</p>
-          ) : !selectedChapter ? (
-            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>Choose a chapter to view linked tests.</p>
-          ) : filteredTests.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '1.5rem', color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>
-              No tests in this category yet. Click "+ New Test" above to create one.
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '550px', overflowY: 'auto' }}>
-              {filteredTests.map((t) => {
-                const qCount = parseInt(t.question_count, 10) || 0;
-                const isPublished = t.publication_status === 'published' || t.is_published;
-                return (
-                  <div
-                    key={t.id}
-                    style={{
-                      padding: '0.65rem 0.75rem',
-                      borderRadius: 'var(--radius)',
-                      border: '1px solid var(--color-border)',
-                      backgroundColor: '#ffffff',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '0.4rem',
-                    }}
+                <div className="form-group">
+                  <label className="form-label">Access Tier</label>
+                  <select
+                    className="form-input"
+                    value={testForm.accessType}
+                    onChange={(e) => setTestForm({ ...testForm, accessType: e.target.value })}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div style={{ flex: 1, paddingRight: '0.5rem' }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
-                          #{t.test_number || t.display_order}: {t.title}
-                        </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.15rem' }}>
-                          <span className="status-pill status-secondary" style={{ textTransform: 'capitalize', padding: '0.1rem 0.35rem', fontSize: '0.65rem' }}>
-                            {t.test_type?.replace('_', ' ')}
-                          </span>
-                          {' '}&bull; {qCount} questions &bull; {t.duration_minutes}m &bull; +{t.positive_marks}/-{t.negative_marks}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => handleToggleTestStatus(t)}
-                        className={`status-pill ${isPublished ? 'status-success' : 'status-secondary'}`}
-                        style={{ cursor: 'pointer', border: 'none', fontSize: '0.7rem' }}
-                        title={qCount === 0 ? 'Draft: Cannot publish without questions' : 'Click to toggle publication status'}
-                      >
-                        {isPublished ? 'published' : 'draft'}
-                      </button>
-                    </div>
+                    <option value="paid">Paid / Premium</option>
+                    <option value="free">Free Test</option>
+                  </select>
+                </div>
+              </div>
 
-                    {/* Test Action Controls */}
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.35rem', borderTop: '1px solid #f1f5f9', paddingTop: '0.35rem' }}>
-                      <button
-                        type="button"
-                        className="btn btn-outline"
-                        style={{ padding: '0.15rem 0.45rem', fontSize: '0.7rem' }}
-                        onClick={() => handleOpenPreview(t)}
-                        title="Preview questions in this test"
-                      >
-                        👁️ Preview ({qCount})
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-outline"
-                        style={{ padding: '0.15rem 0.45rem', fontSize: '0.7rem' }}
-                        onClick={() => startEditTest(t)}
-                        title="Edit test configuration"
-                      >
-                        ✏️ Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-outline"
-                        style={{ padding: '0.15rem 0.45rem', fontSize: '0.7rem', color: '#dc2626' }}
-                        onClick={() => setDeleteConfirmation({ type: 'test', id: t.id, title: t.title })}
-                        title="Delete test"
-                      >
-                        🗑️ Delete
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+              <div className="form-group">
+                <label className="form-label">Description / Instructions</label>
+                <textarea
+                  className="form-input"
+                  rows={2}
+                  placeholder="Test instructions or syllabus topics covered..."
+                  value={testForm.description}
+                  onChange={(e) => setTestForm({ ...testForm, description: e.target.value })}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.25rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  onClick={() => {
+                    setShowAddTest(false);
+                    setEditingTest(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary">
+                  {editingTest ? 'Save Test Changes' : 'Create Test (Draft)'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* ==========================================
-          MODAL: TEST QUESTIONS PREVIEW DRAWER
-         ========================================== */}
+      {/* ======================================================== */}
+      {/* MODAL: PREVIEW QUESTIONS */}
+      {/* ======================================================== */}
       {previewTest && (
         <div
           style={{
@@ -992,112 +915,97 @@ export default function AdminHierarchyManager() {
             inset: 0,
             backgroundColor: 'rgba(0,0,0,0.5)',
             display: 'flex',
-            justifyContent: 'center',
             alignItems: 'center',
+            justifyContent: 'center',
             zIndex: 1000,
             padding: '1rem',
           }}
         >
-          <div
-            className="card"
-            style={{
-              width: '100%',
-              maxWidth: '750px',
-              maxHeight: '85vh',
-              overflowY: 'auto',
-              margin: 0,
-              backgroundColor: '#ffffff',
-            }}
-          >
-            <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="card" style={{ maxWidth: '780px', width: '100%', margin: 0, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border)', paddingBottom: '0.75rem', marginBottom: '1rem' }}>
               <div>
-                <h3 className="card-title" style={{ fontSize: '1.15rem', margin: 0 }}>
-                  Test Questions Preview: {previewTest.title}
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 800, margin: 0 }}>
+                  Questions in "{previewTest.title}"
                 </h3>
-                <p className="card-subtitle" style={{ fontSize: '0.85rem' }}>
-                  {previewQuestions.length} Questions Mapped in PostgreSQL
-                </p>
+                <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                  Total: {previewQuestions.length} Questions | Marking: +{previewTest.positive_marks}/-{previewTest.negative_marks}
+                </span>
               </div>
               <button
                 type="button"
                 className="btn btn-outline"
+                style={{ fontSize: '0.8rem' }}
                 onClick={() => setPreviewTest(null)}
-                style={{ padding: '0.3rem 0.6rem', fontSize: '0.85rem' }}
               >
                 Close ✕
               </button>
             </div>
 
-            {loadingPreview ? (
-              <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>Loading mapped questions...</p>
-            ) : previewQuestions.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--color-text-muted)' }}>
-                <p style={{ fontSize: '1rem', marginBottom: '0.5rem' }}>No questions assigned to this test yet.</p>
-                <p style={{ fontSize: '0.85rem' }}>Use the <strong>Bulk Question Upload</strong> tab to import questions into this test.</p>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                {previewQuestions.map((q, idx) => (
+            <div style={{ overflowY: 'auto', flex: 1, paddingRight: '0.5rem' }}>
+              {loadingPreview ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
+                  Loading questions...
+                </div>
+              ) : previewQuestions.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--color-text-muted)' }}>
+                  This test currently has no questions. Go to "Bulk Question Upload" to import questions.
+                </div>
+              ) : (
+                previewQuestions.map((q, qIdx) => (
                   <div
-                    key={q.id || idx}
+                    key={q.id || qIdx}
                     style={{
-                      border: '1px solid var(--color-border)',
-                      borderRadius: 'var(--radius)',
                       padding: '0.85rem',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: '6px',
+                      marginBottom: '0.75rem',
                       backgroundColor: '#f8fafc',
                     }}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-                      <span style={{ fontWeight: 700, color: 'var(--color-primary)', fontSize: '0.9rem' }}>
-                        Q{idx + 1}. {q.topic ? `[${q.topic}]` : ''}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.35rem' }}>
+                      <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--color-primary)' }}>
+                        Q{qIdx + 1}
                       </span>
-                      <span className="status-pill status-secondary" style={{ fontSize: '0.7rem' }}>
-                        +{q.positive_marks || 4} / -{q.negative_marks || 1}
+                      <span className="status-pill status-success" style={{ fontSize: '0.7rem' }}>
+                        Answer: Option {q.correct_option}
                       </span>
                     </div>
 
-                    <p style={{ fontSize: '0.95rem', fontWeight: 500, marginBottom: '0.75rem', lineHeight: 1.5 }}>
+                    <p style={{ fontSize: '0.9rem', fontWeight: 600, margin: '0 0 0.5rem 0', color: 'var(--color-text)' }}>
                       {q.question_text}
                     </p>
 
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0.5rem', marginBottom: '0.5rem' }}>
-                      {['A', 'B', 'C', 'D'].map((opt) => {
-                        const optKey = `option_${opt.toLowerCase()}`;
-                        const isCorrect = (q.correct_option || '').trim().toUpperCase() === opt;
-                        return (
-                          <div
-                            key={opt}
-                            style={{
-                              padding: '0.45rem 0.65rem',
-                              borderRadius: '4px',
-                              border: isCorrect ? '2px solid #16a34a' : '1px solid var(--color-border)',
-                              backgroundColor: isCorrect ? '#f0fdf4' : '#ffffff',
-                              fontSize: '0.85rem',
-                            }}
-                          >
-                            <strong>({opt})</strong> {q[optKey]}
-                            {isCorrect && <span style={{ color: '#16a34a', fontWeight: 700, marginLeft: '0.5rem' }}>✓ Correct</span>}
-                          </div>
-                        );
-                      })}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.35rem', fontSize: '0.8rem' }}>
+                      <div style={{ color: q.correct_option === 'A' ? '#16a34a' : 'inherit', fontWeight: q.correct_option === 'A' ? 700 : 400 }}>
+                        A. {q.option_a}
+                      </div>
+                      <div style={{ color: q.correct_option === 'B' ? '#16a34a' : 'inherit', fontWeight: q.correct_option === 'B' ? 700 : 400 }}>
+                        B. {q.option_b}
+                      </div>
+                      <div style={{ color: q.correct_option === 'C' ? '#16a34a' : 'inherit', fontWeight: q.correct_option === 'C' ? 700 : 400 }}>
+                        C. {q.option_c}
+                      </div>
+                      <div style={{ color: q.correct_option === 'D' ? '#16a34a' : 'inherit', fontWeight: q.correct_option === 'D' ? 700 : 400 }}>
+                        D. {q.option_d}
+                      </div>
                     </div>
 
                     {q.explanation && (
-                      <div style={{ fontSize: '0.8rem', color: '#1e3a8a', backgroundColor: '#eff6ff', padding: '0.5rem', borderRadius: '4px', marginTop: '0.5rem' }}>
-                        <strong>Solution / Explanation:</strong> {q.explanation}
+                      <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.5rem', backgroundColor: '#eff6ff', padding: '0.4rem', borderRadius: '4px' }}>
+                        💡 <strong>Solution:</strong> {q.explanation}
                       </div>
                     )}
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* ==========================================
-          MODAL: DELETE CONFIRMATION
-         ========================================== */}
+      {/* ======================================================== */}
+      {/* MODAL: DELETE CONFIRMATION */}
+      {/* ======================================================== */}
       {deleteConfirmation && (
         <div
           style={{
@@ -1105,36 +1013,42 @@ export default function AdminHierarchyManager() {
             inset: 0,
             backgroundColor: 'rgba(0,0,0,0.5)',
             display: 'flex',
-            justifyContent: 'center',
             alignItems: 'center',
+            justifyContent: 'center',
             zIndex: 1000,
             padding: '1rem',
           }}
         >
-          <div className="card" style={{ maxWidth: '420px', width: '100%', margin: 0 }}>
-            <h3 className="card-title" style={{ color: '#dc2626' }}>
+          <div className="card" style={{ maxWidth: '440px', width: '100%', margin: 0, textAlign: 'center' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>⚠️</div>
+            <h3 style={{ fontSize: '1.2rem', fontWeight: 800, marginBottom: '0.5rem' }}>
               Confirm Deletion
             </h3>
-            <p style={{ fontSize: '0.9rem', color: 'var(--color-text)', margin: '0.75rem 0' }}>
-              Are you sure you want to delete this {deleteConfirmation.type}: <strong>"{deleteConfirmation.title}"</strong>?
+            <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginBottom: '1.25rem' }}>
+              Are you sure you want to delete {deleteConfirmation.type} "<strong>{deleteConfirmation.title}</strong>"?
+              This action cannot be undone.
             </p>
-            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginBottom: '1.25rem' }}>
-              This operation cannot be undone. Any associated sub-records must be clean.
-            </p>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-              <button className="btn btn-outline" onClick={() => setDeleteConfirmation(null)}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem' }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => setDeleteConfirmation(null)}
+              >
                 Cancel
               </button>
               <button
+                type="button"
                 className="btn btn-primary"
                 style={{ backgroundColor: '#dc2626', borderColor: '#dc2626' }}
                 onClick={() => {
                   if (deleteConfirmation.type === 'test') {
                     handleDeleteTest(deleteConfirmation.id);
+                  } else {
+                    handleDeleteSubject(deleteConfirmation.id);
                   }
                 }}
               >
-                Delete Permanently
+                Yes, Delete
               </button>
             </div>
           </div>

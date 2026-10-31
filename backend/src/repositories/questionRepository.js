@@ -13,8 +13,8 @@ export const getTestWithHierarchy = async (testId) => {
        s.id as subject_id, s.name as subject_name, s.code as subject_code, s.paper_code as subject_paper_code,
        COUNT(tq.id)::int as question_count
      FROM tests t
-     JOIN chapters c ON t.chapter_id = c.id
-     JOIN subjects s ON c.subject_id = s.id
+     JOIN subjects s ON t.subject_id = s.id
+     LEFT JOIN chapters c ON t.chapter_id = c.id
      LEFT JOIN test_questions tq ON t.id = tq.test_id
      WHERE t.id = $1
      GROUP BY t.id, c.id, c.name, c.title, c.display_order, s.id, s.name, s.code, s.paper_code;`,
@@ -98,10 +98,10 @@ export const bulkImportQuestionsAtomic = async ({
     const testRes = await client.query(
       `SELECT t.*, c.name as chapter_name, s.name as subject_name
        FROM tests t
-       JOIN chapters c ON t.chapter_id = c.id
-       JOIN subjects s ON c.subject_id = s.id
+       JOIN subjects s ON t.subject_id = s.id
+       LEFT JOIN chapters c ON t.chapter_id = c.id
        WHERE t.id = $1
-       FOR UPDATE;`,
+       FOR UPDATE OF t;`,
       [testId]
     );
 

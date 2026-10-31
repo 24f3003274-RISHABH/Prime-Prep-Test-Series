@@ -93,7 +93,7 @@ export default function PublicHomepage({ onNavigateToCatalogue, onSelectSubject,
               margin: '0 auto 2rem auto',
             }}
           >
-            Practice chapter-wise tests, full-length mock examinations, and previous-year questions to prepare confidently for CUET PG.
+            Practice sectional tests, full-length mock examinations, and previous-year questions to prepare confidently for CUET PG.
           </p>
 
           <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
@@ -158,13 +158,13 @@ export default function PublicHomepage({ onNavigateToCatalogue, onSelectSubject,
 
           <div className="card" style={{ textAlign: 'center', padding: '1.5rem', margin: 0, borderTop: '3px solid #059669' }}>
             <div style={{ fontSize: '2.25rem', fontWeight: 800, color: '#059669', lineHeight: 1 }}>
-              {stats ? stats.chaptersCount : (loading ? '...' : 25)}
+              3
             </div>
             <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-text)', marginTop: '0.5rem' }}>
-              Published Chapters
+              Test Categories
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.2rem' }}>
-              Structured syllabus units
+              Sectional, Full-Length & PYQ
             </div>
           </div>
 
@@ -232,17 +232,17 @@ export default function PublicHomepage({ onNavigateToCatalogue, onSelectSubject,
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                 <span className="status-pill status-primary" style={{ fontSize: '0.75rem' }}>
-                  Chapter-Wise
+                  Targeted Practice
                 </span>
                 <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                  Up to 15 / Chapter
+                  Topic-Wise
                 </span>
               </div>
               <h3 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '0.5rem' }}>
                 Sectional Tests
               </h3>
               <p style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)', lineHeight: 1.5, marginBottom: '1rem' }}>
-                Focused 30–45 minute tests covering single chapter topics. Master individual syllabus concepts with granular feedback and explanations.
+                Focused 30–45 minute tests covering core syllabus modules. Master individual discipline areas with granular feedback and explanations.
               </p>
             </div>
             <button
@@ -277,7 +277,7 @@ export default function PublicHomepage({ onNavigateToCatalogue, onSelectSubject,
                   NTA Exam Pattern
                 </span>
                 <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                  Up to 10 / Chapter
+                  Full Mocks
                 </span>
               </div>
               <h3 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '0.5rem' }}>
@@ -319,7 +319,7 @@ export default function PublicHomepage({ onNavigateToCatalogue, onSelectSubject,
                   Past Papers
                 </span>
                 <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
-                  Up to 5 / Chapter
+                  Previous Years
                 </span>
               </div>
               <h3 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: '0.5rem' }}>
@@ -405,9 +405,9 @@ export default function PublicHomepage({ onNavigateToCatalogue, onSelectSubject,
                 <div>
                   <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.85rem' }}>
                     <span className="status-pill status-secondary" style={{ fontSize: '0.725rem' }}>
-                      📚 {subj.chapter_count || 0} Chapters
+                      🎯 3 Categories
                     </span>
-                    <span className="status-pill status-secondary" style={{ fontSize: '0.725rem' }}>
+                    <span className="status-pill status-primary" style={{ fontSize: '0.725rem' }}>
                       📝 {subj.test_count || 0} Tests
                     </span>
                   </div>

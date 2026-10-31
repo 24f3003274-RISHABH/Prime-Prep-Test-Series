@@ -7,7 +7,9 @@ export default function PublicTestDetails({
   onBackToCatalogue,
   onRequireAuth,
   onStartExamSession,
+  onNavigateToPurchase,
 }) {
+
   const { user, isAuthenticated } = useAuth();
   const [test, setTest] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -173,12 +175,25 @@ export default function PublicTestDetails({
             <strong>{accessNotice.type === 'paid_restricted' ? '🔒 Premium Test Enrollment Required:' : '⚠️ Notice:'}</strong>{' '}
             {accessNotice.message}
             {accessNotice.type === 'paid_restricted' && (
-              <div style={{ marginTop: '0.5rem', fontSize: '0.825rem' }}>
-                Free tests are available across all 7 subjects in the public catalogue. You can explore free mock tests anytime!
+              <div style={{ marginTop: '0.75rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {onNavigateToPurchase && test && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ backgroundColor: '#16a34a', borderColor: '#15803d', fontWeight: 800, fontSize: '0.85rem' }}
+                    onClick={() => onNavigateToPurchase(test.subject_id, test.id)}
+                  >
+                    Unlock {test.subject_name} Series (₹499) 🔒 &rarr;
+                  </button>
+                )}
+                <span style={{ fontSize: '0.825rem', color: '#92400e' }}>
+                  Unlocks all Sectional, Full-Length, and PYQ tests in this subject.
+                </span>
               </div>
             )}
           </div>
         )}
+
 
         {/* 4 Specifications Summary Metric Boxes */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.85rem', marginBottom: '1.5rem' }}>
@@ -258,16 +273,33 @@ export default function PublicTestDetails({
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <button className="btn btn-outline" onClick={onBackToCatalogue}>
               Cancel
             </button>
+
+            {!isFree && onNavigateToPurchase && test && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{
+                  backgroundColor: '#16a34a',
+                  borderColor: '#15803d',
+                  fontWeight: 700,
+                  padding: '0.65rem 1.25rem',
+                  fontSize: '0.95rem',
+                }}
+                onClick={() => onNavigateToPurchase(test.subject_id, test.id)}
+              >
+                Unlock Series (₹499) 🔒
+              </button>
+            )}
 
             <button
               className="btn btn-primary"
               onClick={handleStartClick}
               disabled={starting || !isReady}
-              style={{ fontWeight: 700, padding: '0.65rem 1.75rem', fontSize: '1rem' }}
+              style={{ fontWeight: 700, padding: '0.65rem 1.5rem', fontSize: '0.95rem' }}
             >
               {starting
                 ? 'Initiating Session...'
@@ -276,6 +308,7 @@ export default function PublicTestDetails({
                 : 'Sign In to Start Test &rarr;'}
             </button>
           </div>
+
         </div>
       </div>
     </div>

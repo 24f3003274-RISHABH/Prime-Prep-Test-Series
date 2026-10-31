@@ -6,6 +6,9 @@ const router = Router();
 
 // Public / student catalogue
 router.get('/subjects', optionalAuth, studentController.getPublishedSubjects);
+router.get('/subjects/:subjectId/categories', optionalAuth, studentController.getSubjectCategories);
+router.get('/subjects/:subjectId/tests', optionalAuth, studentController.getSubjectTests);
+router.get('/subjects/:subjectId/history', requireAuth, studentController.getSubjectHistory);
 router.get('/subjects/:subjectId/chapters', optionalAuth, studentController.getPublishedChapters);
 router.get('/tests', optionalAuth, studentController.getPublishedTests);
 router.get('/tests/:testId/instructions', optionalAuth, studentController.getTestInstructions);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { getPublicSubjects, getPublicChapters, getPublicTests } from '../api/client.js';
+import { getPublicSubjects, getPublicTests } from '../api/client.js';
 
 export default function PublicCatalogue({
   initialSubjectId = '',
@@ -7,13 +7,13 @@ export default function PublicCatalogue({
   initialAccessType = 'ALL',
   onSelectTest,
   onNavigateHome,
+  onNavigateToPurchase,
 }) {
+
   const [subjects, setSubjects] = useState([]);
-  const [chapters, setChapters] = useState([]);
 
   // Filter & Search states
   const [selectedSubjectId, setSelectedSubjectId] = useState(initialSubjectId);
-  const [selectedChapterId, setSelectedChapterId] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [selectedAccessType, setSelectedAccessType] = useState(initialAccessType);
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,31 +38,10 @@ export default function PublicCatalogue({
     }
   };
 
-  // Load chapters when selectedSubjectId changes
-  useEffect(() => {
-    if (!selectedSubjectId) {
-      setChapters([]);
-      setSelectedChapterId('');
-      return;
-    }
-    loadChapters(selectedSubjectId);
-  }, [selectedSubjectId]);
-
-  const loadChapters = async (subId) => {
-    try {
-      const data = await getPublicChapters(subId);
-      setChapters(data || []);
-      setSelectedChapterId('');
-    } catch (err) {
-      console.error('Failed to load chapters:', err);
-      setChapters([]);
-    }
-  };
-
   // Fetch tests whenever filters change or page changes
   useEffect(() => {
     loadTests(1);
-  }, [selectedSubjectId, selectedChapterId, selectedCategory, selectedAccessType, searchQuery]);
+  }, [selectedSubjectId, selectedCategory, selectedAccessType, searchQuery]);
 
   const loadTests = async (targetPage = 1) => {
     setLoading(true);
@@ -70,7 +49,6 @@ export default function PublicCatalogue({
     try {
       const res = await getPublicTests({
         subjectId: selectedSubjectId || undefined,
-        chapterId: selectedChapterId || undefined,
         category: selectedCategory !== 'ALL' ? selectedCategory : undefined,
         accessType: selectedAccessType !== 'ALL' ? selectedAccessType : undefined,
         search: searchQuery.trim() || undefined,
@@ -89,14 +67,13 @@ export default function PublicCatalogue({
 
   const handleResetFilters = () => {
     setSelectedSubjectId('');
-    setSelectedChapterId('');
     setSelectedCategory('ALL');
     setSelectedAccessType('ALL');
     setSearchQuery('');
   };
 
   const hasActiveFilters = Boolean(
-    selectedSubjectId || selectedChapterId || (selectedCategory && selectedCategory !== 'ALL') || (selectedAccessType && selectedAccessType !== 'ALL') || searchQuery
+    selectedSubjectId || (selectedCategory && selectedCategory !== 'ALL') || (selectedAccessType && selectedAccessType !== 'ALL') || searchQuery
   );
 
   return (
@@ -120,20 +97,20 @@ export default function PublicCatalogue({
           Explore CUET PG Test Series
         </h1>
         <p style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)', margin: 0 }}>
-          Browse published mock tests, chapter-wise sectionals, and previous-year papers across all 7 CUET PG disciplines.
+          Browse published sectional tests, full-length mock examinations, and previous-year papers across all 7 CUET PG disciplines.
         </p>
       </div>
 
       {/* FILTER & SEARCH PANEL */}
       <div className="card" style={{ padding: '1.25rem', marginBottom: '1.5rem', backgroundColor: '#f8fafc' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', alignItems: 'flex-end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', alignItems: 'flex-end' }}>
           {/* 1. Search */}
           <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label" style={{ fontSize: '0.775rem' }}>Search Test, Subject or Chapter</label>
+            <label className="form-label" style={{ fontSize: '0.775rem' }}>Search Test or Subject</label>
             <input
               type="text"
               className="form-input"
-              placeholder="e.g. Political Thought, Sectional 1..."
+              placeholder="e.g. Political Science, Sectional 1..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -156,27 +133,7 @@ export default function PublicCatalogue({
             </select>
           </div>
 
-          {/* 3. Chapter Filter */}
-          <div className="form-group" style={{ margin: 0 }}>
-            <label className="form-label" style={{ fontSize: '0.775rem' }}>
-              Chapter {selectedSubjectId ? `(${chapters.length})` : ''}
-            </label>
-            <select
-              className="form-input"
-              value={selectedChapterId}
-              onChange={(e) => setSelectedChapterId(e.target.value)}
-              disabled={!selectedSubjectId || chapters.length === 0}
-            >
-              <option value="">All Chapters</option>
-              {chapters.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.display_order ? `${c.display_order}. ` : ''}{c.name || c.title}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* 4. Category Filter */}
+          {/* 3. Category Filter */}
           <div className="form-group" style={{ margin: 0 }}>
             <label className="form-label" style={{ fontSize: '0.775rem' }}>Test Category</label>
             <select
@@ -191,7 +148,7 @@ export default function PublicCatalogue({
             </select>
           </div>
 
-          {/* 5. Access Type Filter */}
+          {/* 4. Access Type Filter */}
           <div className="form-group" style={{ margin: 0 }}>
             <label className="form-label" style={{ fontSize: '0.775rem' }}>Access Tier</label>
             <select
@@ -216,18 +173,6 @@ export default function PublicCatalogue({
                 <button
                   type="button"
                   onClick={() => setSelectedSubjectId('')}
-                  style={{ background: 'none', border: 'none', marginLeft: '0.35rem', cursor: 'pointer', color: 'inherit' }}
-                >
-                  ✕
-                </button>
-              </span>
-            )}
-            {selectedChapterId && (
-              <span className="status-pill status-secondary" style={{ fontSize: '0.725rem' }}>
-                Chapter: {chapters.find((c) => c.id === selectedChapterId)?.name || 'Selected'}
-                <button
-                  type="button"
-                  onClick={() => setSelectedChapterId('')}
                   style={{ background: 'none', border: 'none', marginLeft: '0.35rem', cursor: 'pointer', color: 'inherit' }}
                 >
                   ✕
@@ -356,13 +301,6 @@ export default function PublicCatalogue({
                     {t.title}
                   </h3>
 
-                  {/* Chapter */}
-                  {t.chapter_name && (
-                    <div style={{ fontSize: '0.775rem', color: 'var(--color-text-muted)', marginBottom: '0.6rem' }}>
-                      📖 {t.chapter_name}
-                    </div>
-                  )}
-
                   {/* Description */}
                   <p style={{ fontSize: '0.825rem', color: 'var(--color-text-muted)', lineHeight: 1.45, marginBottom: '1rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                     {t.description || 'Comprehensive CUET PG practice test based on official NTA curriculum.'}
@@ -402,13 +340,30 @@ export default function PublicCatalogue({
                   <div style={{ display: 'flex', gap: '0.5rem' }}>
                     <button
                       type="button"
-                      className="btn btn-primary"
-                      style={{ flex: 1, fontSize: '0.85rem', fontWeight: 700, padding: '0.5rem' }}
+                      className="btn btn-outline"
+                      style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600, padding: '0.5rem' }}
                       onClick={() => onSelectTest(t.id)}
                     >
                       View Details &rarr;
                     </button>
+                    {!isFree && onNavigateToPurchase && (
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{
+                          fontSize: '0.8rem',
+                          fontWeight: 700,
+                          padding: '0.5rem 0.75rem',
+                          backgroundColor: '#16a34a',
+                          borderColor: '#15803d',
+                        }}
+                        onClick={() => onNavigateToPurchase(t.subject_id, t.id)}
+                      >
+                        Unlock ₹499 🔒
+                      </button>
+                    )}
                   </div>
+
                 </div>
               </div>
             );

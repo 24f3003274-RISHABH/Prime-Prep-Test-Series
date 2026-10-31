@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getStudentTestInstructions, startStudentTest } from '../api/client.js';
 
-export default function StudentTestInstructions({ testId, onStartExam, onBack }) {
+export default function StudentTestInstructions({ testId, onStartExam, onBack, onNavigateToPurchase }) {
   const [test, setTest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -18,6 +18,10 @@ export default function StudentTestInstructions({ testId, onStartExam, onBack })
       const data = await getStudentTestInstructions(testId);
       setTest(data);
     } catch (err) {
+      if (err.code === 'PAID_TEST_RESTRICTED' && err.details?.subjectId && onNavigateToPurchase) {
+        onNavigateToPurchase(err.details.subjectId);
+        return;
+      }
       setError(err.message || 'Failed to load test instructions.');
     } finally {
       setLoading(false);
@@ -31,10 +35,15 @@ export default function StudentTestInstructions({ testId, onStartExam, onBack })
       const session = await startStudentTest(testId);
       onStartExam(session);
     } catch (err) {
+      if (err.code === 'PAID_TEST_RESTRICTED' && onNavigateToPurchase) {
+        onNavigateToPurchase(err.details?.subjectId || test?.subject_id);
+        return;
+      }
       setError(err.message || 'Failed to start test attempt.');
       setStarting(false);
     }
   };
+
 
   if (loading) {
     return (
@@ -159,20 +168,52 @@ export default function StudentTestInstructions({ testId, onStartExam, onBack })
           </div>
         )}
 
+        {test && !test.is_unlocked && !test.is_free && test.access_type !== 'free' && (
+          <div style={{ padding: '1.25rem', backgroundColor: '#fef3c7', border: '1px solid #fde68a', borderRadius: 'var(--radius)', color: '#92400e', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+              <span style={{ fontSize: '1.3rem' }}>🔒</span>
+              <strong style={{ fontSize: '1rem' }}>Premium Test Series Required</strong>
+            </div>
+            <p style={{ margin: '0 0 1rem 0', fontSize: '0.9rem', lineHeight: 1.5 }}>
+              This test is part of the premium <strong>{test.subject_name}</strong> series. Unlock every Sectional Test, Full-Length Mock, and PYQ paper in {test.subject_name} with a single ₹499 purchase.
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ backgroundColor: '#16a34a', borderColor: '#15803d', fontWeight: 800 }}
+              onClick={() => onNavigateToPurchase && onNavigateToPurchase(test.subject_id)}
+            >
+              Unlock {test.subject_name} Series (₹499) 🔒 &rarr;
+            </button>
+          </div>
+        )}
+
         {/* Action Button */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid var(--color-border)', paddingTop: '1rem' }}>
           <button className="btn btn-outline" onClick={onBack}>
             Cancel
           </button>
-          <button
-            className="btn btn-primary"
-            onClick={handleStart}
-            disabled={starting || !isReady}
-            style={{ fontWeight: 700, padding: '0.65rem 1.75rem', fontSize: '1rem' }}
-          >
-            {starting ? 'Initiating Exam Session...' : hasActiveAttempt ? 'Resume Test &rarr;' : 'I Am Ready &bull; Start Test &rarr;'}
-          </button>
+          {test && !test.is_unlocked && !test.is_free && test.access_type !== 'free' ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ backgroundColor: '#16a34a', borderColor: '#15803d', fontWeight: 800, padding: '0.65rem 1.75rem', fontSize: '1rem' }}
+              onClick={() => onNavigateToPurchase && onNavigateToPurchase(test.subject_id)}
+            >
+              Unlock {test.subject_name} Series (₹499) 🔒 &rarr;
+            </button>
+          ) : (
+            <button
+              className="btn btn-primary"
+              onClick={handleStart}
+              disabled={starting || !isReady}
+              style={{ fontWeight: 700, padding: '0.65rem 1.75rem', fontSize: '1rem' }}
+            >
+              {starting ? 'Initiating Exam Session...' : hasActiveAttempt ? 'Resume Test &rarr;' : 'I Am Ready &bull; Start Test &rarr;'}
+            </button>
+          )}
         </div>
+
       </div>
     </div>
   );
